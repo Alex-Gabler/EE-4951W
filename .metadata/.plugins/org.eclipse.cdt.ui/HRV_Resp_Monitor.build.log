@@ -1,0 +1,10 @@
+16:25:05 **** Incremental Build of configuration Debug for project HRV_Resp_Monitor ****
+make -j9 all 
+arm-none-eabi-size  HRV_Resp_Monitor.elf 
+   text	   data	    bss	    dec	    hex	filename
+    656	      0	   1568	   2224	    8b0	HRV_Resp_Monitor.elf
+Finished building: default.size.stdout
+ 
+
+16:25:05 Build Finished. 0 errors, 0 warnings. (took 254ms)
+
