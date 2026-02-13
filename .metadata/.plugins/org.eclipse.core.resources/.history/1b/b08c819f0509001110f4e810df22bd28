@@ -105,11 +105,6 @@ int main(void)
   MPU6050_Initialization();
 
   /* USER CODE END 2 */
-  MPU6050_CalibrateGyro(6);
-  MPU6050_CalibrateAccel(6);
-  MPU6050_PrintActiveOffsets();
-
-  HAL_Delay(3000);
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
@@ -117,6 +112,7 @@ int main(void)
   {
     /* USER CODE END WHILE */
 	  MPU6050_ProcessData(&MPU6050);
+	  printf("in the while loop:");
 	  printf("ax=%.4f ay=%.4f az=%.4f | gx=%.4f gy=%.4f gz=%.4f | T=%.2f\r\n",
 	         MPU6050.acc_x,
 	         MPU6050.acc_y,
@@ -125,7 +121,7 @@ int main(void)
 	         MPU6050.gyro_y,
 	         MPU6050.gyro_z,
 	         MPU6050.temperature);
-	  HAL_Delay(300); // 10 Hz update
+	  HAL_Delay(600); // 10 Hz update
 
     /* USER CODE BEGIN 3 */
 

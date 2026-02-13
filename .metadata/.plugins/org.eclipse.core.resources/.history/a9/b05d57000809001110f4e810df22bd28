@@ -1,8 +1,6 @@
 #include "MPU6050.h"
 #include "main.h"
 #include <stdio.h>
-#include <math.h>
-
 extern I2C_HandleTypeDef hi2c1;
 
 Struct_MPU6050 MPU6050;
@@ -11,204 +9,39 @@ static float LSB_Sensitivity_ACC;
 static float LSB_Sensitivity_GYRO;
 
 #define MPU6050_ADDR        (0x68 << 1)
+#define MPU6050_XA_OFFS_H   0x06
+#define MPU6050_XG_OFFS_H   0x13
 
-
-// MPU6050 Register Defines
-#define MPU6050_RA_XA_OFFS_H   0x06
-#define MPU6050_RA_XG_OFFS_H   0x13
-#define MPU6050_RA_ACCEL_XOUT_H 0x3B
-#define MPU6050_RA_GYRO_XOUT_H  0x43
-
-
-static int16_t offsets[6];
-
-// Forward declarations
-static void MPU_WriteWord(uint8_t reg, int16_t value);
-static void MPU_ReadWord(uint8_t reg, int16_t *value);
-void MPU6050_GetActiveOffsets(int16_t *offsets);
-
-
-static void MPU_WriteWord(uint8_t reg, int16_t value) {
-    uint8_t buf[2];
-    buf[0] = (value >> 8) & 0xFF;
-    buf[1] = value & 0xFF;
-    HAL_I2C_Mem_Write(&hi2c1, MPU6050_ADDR, reg, 1, buf, 2, HAL_MAX_DELAY);
-}
-
-static void MPU_ReadWord(uint8_t reg, int16_t *value) {
-    uint8_t buf[2];
-    HAL_I2C_Mem_Read(&hi2c1, MPU6050_ADDR, reg, 1, buf, 2, HAL_MAX_DELAY);
-    *value = (buf[0] << 8) | buf[1];
-}
-
-void MPU6050_GetActiveOffsets(int16_t *offsets) {
-    MPU_ReadWord(MPU6050_RA_XA_OFFS_H, &offsets[0]);
-    MPU_ReadWord(MPU6050_RA_XA_OFFS_H + 2, &offsets[1]);
-    MPU_ReadWord(MPU6050_RA_XA_OFFS_H + 4, &offsets[2]);
-    MPU_ReadWord(MPU6050_RA_XG_OFFS_H, &offsets[3]);
-    MPU_ReadWord(MPU6050_RA_XG_OFFS_H + 2, &offsets[4]);
-    MPU_ReadWord(MPU6050_RA_XG_OFFS_H + 4, &offsets[5]);
-}
-
-void MPU6050_PrintActiveOffsets(void) {
-    int16_t offsets[6];
-    MPU6050_GetActiveOffsets(offsets);
-
-    for(int i = 0; i < 6; i++){
-        printf("%d\t", offsets[i]);
-    }
-    printf("\n");
-}
-
-
-static void MPU6050_PID(uint8_t readAddr, float kP, float kI, uint8_t loops)
-{
-    uint8_t saveAddr = (readAddr == MPU6050_RA_ACCEL_XOUT_H) ?
-                        MPU6050_RA_XA_OFFS_H :
-                        MPU6050_RA_XG_OFFS_H;
-
-    uint8_t shift = (saveAddr == MPU6050_RA_XA_OFFS_H) ? 2 : 2;
-
-    int16_t data;
-    float reading;
-    float error, pTerm;
-    float iTerm[3] = {0};
-    int16_t bitZero[3] = {0};
-
-    uint16_t gravity = 16384; // ±2g assumed
-
-    /* --- Read existing offsets --- */
-    for(int i = 0; i < 3; i++)
-    {
-        MPU_ReadWord(saveAddr + i*shift, &data);
-
-        reading = data;
-
-        if(saveAddr == MPU6050_RA_XA_OFFS_H)
-        {
-            bitZero[i] = data & 1;
-            iTerm[i] = reading * 8;
-        }
-        else
-        {
-            iTerm[i] = reading * 4;
-        }
-    }
-
-    /* --- PID Loops --- */
-    for(int L = 0; L < loops; L++)
-    {
-        for(int c = 0; c < 100; c++)
-        {
-            uint32_t eSum = 0;
-
-            for(int i = 0; i < 3; i++)
-            {
-                MPU_ReadWord(readAddr + i*2, &data);
-                reading = data;
-
-                if(readAddr == MPU6050_RA_ACCEL_XOUT_H && i == 2)
-                    reading -= gravity;
-
-                error = -reading;
-                eSum += fabs(reading);
-
-                pTerm = kP * error;
-                iTerm[i] += (error * 0.001f) * kI;
-
-                if(saveAddr == MPU6050_RA_XA_OFFS_H)
-                {
-                    data = (int16_t)round((pTerm + iTerm[i]) / 8);
-                    data = (data & 0xFFFE) | bitZero[i];
-                }
-                else
-                {
-                    data = (int16_t)round((pTerm + iTerm[i]) / 4);
-                }
-
-                MPU_WriteWord(saveAddr + i*shift, data);
-            }
-
-            if(eSum < 100) break;
-
-            HAL_Delay(1);
-        }
-
-        kP *= 0.75f;
-        kI *= 0.75f;
-
-        printf(".");
-    }
-
-    printf("\r\nCalibration done\r\n");
-}
-
-void MPU6050_CalibrateGyro(uint8_t loops)
-{
-    float kP = 0.3f;
-    float kI = 90.0f;
-
-    float scale = (100 - ((loops - 1) * 20)) * 0.01f;
-    kP *= scale;
-    kI *= scale;
-
-    printf("Calibrating Gyro...\r\n");
-
-    MPU6050_PID(MPU6050_RA_GYRO_XOUT_H, kP, kI, loops);
-}
-
-
-void MPU6050_CalibrateAccel(uint8_t loops)
-{
-    float kP = 0.3f;
-    float kI = 20.0f;
-
-    float scale = (100 - ((loops - 1) * 20)) * 0.01f;
-    kP *= scale;
-    kI *= scale;
-
-    printf("Calibrating Accel...\r\n");
-
-    MPU6050_PID(MPU6050_RA_ACCEL_XOUT_H, kP, kI, loops);
-}
-
-
-
-
-void MPU6050_WriteOffset(uint8_t reg, int16_t value)
-{
-    uint8_t data[2];
-    data[0] = (value >> 8) & 0xFF;
-    data[1] = value & 0xFF;
-
-    HAL_I2C_Mem_Write(&hi2c1,
-                      MPU6050_ADDR,
-                      reg,
-                      I2C_MEMADD_SIZE_8BIT,
-                      data,
-                      2,
-                      HAL_MAX_DELAY);
-}
-
-void MPU6050_ReadRaw3(uint8_t startReg, int16_t *data)
+void MPU6050_GetActiveOffsets(int16_t *offsets)
 {
     uint8_t buffer[6];
 
+    // -------- Accelerometer offsets --------
     HAL_I2C_Mem_Read(&hi2c1,
                      MPU6050_ADDR,
-                     startReg,
+                     MPU6050_XA_OFFS_H,
                      I2C_MEMADD_SIZE_8BIT,
                      buffer,
                      6,
                      HAL_MAX_DELAY);
 
-    data[0] = (int16_t)(buffer[0] << 8 | buffer[1]);
-    data[1] = (int16_t)(buffer[2] << 8 | buffer[3]);
-    data[2] = (int16_t)(buffer[4] << 8 | buffer[5]);
+    offsets[0] = (int16_t)(buffer[0] << 8 | buffer[1]); // X accel
+    offsets[1] = (int16_t)(buffer[2] << 8 | buffer[3]); // Y accel
+    offsets[2] = (int16_t)(buffer[4] << 8 | buffer[5]); // Z accel
+
+    // -------- Gyroscope offsets --------
+    HAL_I2C_Mem_Read(&hi2c1,
+                     MPU6050_ADDR,
+                     MPU6050_XG_OFFS_H,
+                     I2C_MEMADD_SIZE_8BIT,
+                     buffer,
+                     6,
+                     HAL_MAX_DELAY);
+
+    offsets[3] = (int16_t)(buffer[0] << 8 | buffer[1]); // X gyro
+    offsets[4] = (int16_t)(buffer[2] << 8 | buffer[3]); // Y gyro
+    offsets[5] = (int16_t)(buffer[4] << 8 | buffer[5]); // Z gyro
 }
-
-
-
 
 
 void MPU6050_Writebyte(uint8_t reg_addr, uint8_t val)
@@ -314,7 +147,7 @@ void MPU6050_Initialization(void)
 void MPU6050_Get6AxisRawData(Struct_MPU6050* mpu6050)
 {
 	uint8_t data[14];
-	MPU6050_Readbytes(MPU6050_RA_ACCEL_XOUT_H, 14, data);
+	MPU6050_Readbytes(MPU6050_ACCEL_XOUT_H, 14, data);
 
 	mpu6050->acc_x_raw = (data[0] << 8) | data[1];
 	mpu6050->acc_y_raw = (data[2] << 8) | data[3];

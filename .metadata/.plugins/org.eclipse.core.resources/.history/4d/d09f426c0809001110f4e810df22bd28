@@ -105,11 +105,24 @@ int main(void)
   MPU6050_Initialization();
 
   /* USER CODE END 2 */
-  MPU6050_CalibrateGyro(6);
-  MPU6050_CalibrateAccel(6);
-  MPU6050_PrintActiveOffsets();
+  int16_t offsets[6];
 
-  HAL_Delay(3000);
+  MPU6050_GetActiveOffsets(offsets);
+
+  printf("Accel Offsets: X=%d Y=%d Z=%d\r\n",
+          offsets[0], offsets[1], offsets[2]);
+
+  printf("Gyro Offsets: X=%d Y=%d Z=%d\r\n",
+          offsets[3], offsets[4], offsets[5]);
+
+  printf("Calibrating Gyro...\r\n");
+  MPU6050_CalibrateGyro(6);
+
+  printf("Calibrating Accel...\r\n");
+  MPU6050_CalibrateAccel(6);
+
+  printf("Calibration Done\r\n");
+
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */

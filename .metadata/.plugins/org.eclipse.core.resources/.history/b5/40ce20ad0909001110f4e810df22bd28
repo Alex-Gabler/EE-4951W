@@ -1,7 +1,7 @@
 
 #include "main.h"
 
-
+#define MPU6050_ADDR 0x69
 
 
 #define MPU6050_SMPRT_DIV 0X19
@@ -12,7 +12,7 @@
 #define MPU6050_INT_PIN_CFG 0X37
 #define MPU6050_INT_ENABLE 0X38
 #define MPU6050_INT_STATUS 0X3A
-
+#define MPU6050_ACCEL_XOUT_H 0X3B
 #define MPU6050_ACCEL_XOUT_L 0X3C
 #define MPU6050_PWR_MGMT_1 0X6B //most important
 #define MPU6050_RA_ACCEL_XOUT_H   0x3B

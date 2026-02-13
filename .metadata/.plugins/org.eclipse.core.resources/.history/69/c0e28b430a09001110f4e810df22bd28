@@ -22,45 +22,6 @@ static float LSB_Sensitivity_GYRO;
 
 static int16_t offsets[6];
 
-// Forward declarations
-static void MPU_WriteWord(uint8_t reg, int16_t value);
-static void MPU_ReadWord(uint8_t reg, int16_t *value);
-void MPU6050_GetActiveOffsets(int16_t *offsets);
-
-
-static void MPU_WriteWord(uint8_t reg, int16_t value) {
-    uint8_t buf[2];
-    buf[0] = (value >> 8) & 0xFF;
-    buf[1] = value & 0xFF;
-    HAL_I2C_Mem_Write(&hi2c1, MPU6050_ADDR, reg, 1, buf, 2, HAL_MAX_DELAY);
-}
-
-static void MPU_ReadWord(uint8_t reg, int16_t *value) {
-    uint8_t buf[2];
-    HAL_I2C_Mem_Read(&hi2c1, MPU6050_ADDR, reg, 1, buf, 2, HAL_MAX_DELAY);
-    *value = (buf[0] << 8) | buf[1];
-}
-
-void MPU6050_GetActiveOffsets(int16_t *offsets) {
-    MPU_ReadWord(MPU6050_RA_XA_OFFS_H, &offsets[0]);
-    MPU_ReadWord(MPU6050_RA_XA_OFFS_H + 2, &offsets[1]);
-    MPU_ReadWord(MPU6050_RA_XA_OFFS_H + 4, &offsets[2]);
-    MPU_ReadWord(MPU6050_RA_XG_OFFS_H, &offsets[3]);
-    MPU_ReadWord(MPU6050_RA_XG_OFFS_H + 2, &offsets[4]);
-    MPU_ReadWord(MPU6050_RA_XG_OFFS_H + 4, &offsets[5]);
-}
-
-void MPU6050_PrintActiveOffsets(void) {
-    int16_t offsets[6];
-    MPU6050_GetActiveOffsets(offsets);
-
-    for(int i = 0; i < 6; i++){
-        printf("%d\t", offsets[i]);
-    }
-    printf("\n");
-}
-
-
 static void MPU6050_PID(uint8_t readAddr, float kP, float kI, uint8_t loops)
 {
     uint8_t saveAddr = (readAddr == MPU6050_RA_ACCEL_XOUT_H) ?
@@ -157,6 +118,30 @@ void MPU6050_CalibrateGyro(uint8_t loops)
     MPU6050_PID(MPU6050_RA_GYRO_XOUT_H, kP, kI, loops);
 }
 
+static void MPU_WriteWord(uint8_t reg, int16_t value) {
+    uint8_t buf[2];
+    buf[0] = (value >> 8) & 0xFF;
+    buf[1] = value & 0xFF;
+    HAL_I2C_Master_Transmit(&hi2c1, MPU6050_ADDR, buf, 2, HAL_MAX_DELAY);
+}
+
+static void MPU_ReadWord(uint8_t reg, int16_t *value) {
+    uint8_t buf[2];
+    HAL_I2C_Master_Transmit(&hi2c1, MPU6050_ADDR, &reg, 1, HAL_MAX_DELAY);
+    HAL_I2C_Master_Receive(&hi2c1, MPU6050_ADDR, buf, 2, HAL_MAX_DELAY);
+    *value = (buf[0] << 8) | buf[1];
+}
+
+void MPU6050_PrintActiveOffsets(void) {
+    int16_t offsets[6];
+    MPU6050_GetActiveOffsets(offsets);
+
+    for(int i = 0; i < 6; i++){
+        printf("%d\t", offsets[i]);
+    }
+    printf("\n");
+}
+
 
 void MPU6050_CalibrateAccel(uint8_t loops)
 {
@@ -208,6 +193,15 @@ void MPU6050_ReadRaw3(uint8_t startReg, int16_t *data)
 }
 
 
+
+void MPU6050_GetActiveOffsets(int16_t *offsets) {
+    MPU_ReadWord(MPU6050_RA_XA_OFFS_H, &offsets[0]);
+    MPU_ReadWord(MPU6050_RA_XA_OFFS_H + 2, &offsets[1]);
+    MPU_ReadWord(MPU6050_RA_XA_OFFS_H + 4, &offsets[2]);
+    MPU_ReadWord(MPU6050_RA_XG_OFFS_H, &offsets[3]);
+    MPU_ReadWord(MPU6050_RA_XG_OFFS_H + 2, &offsets[4]);
+    MPU_ReadWord(MPU6050_RA_XG_OFFS_H + 4, &offsets[5]);
+}
 
 
 
@@ -314,7 +308,7 @@ void MPU6050_Initialization(void)
 void MPU6050_Get6AxisRawData(Struct_MPU6050* mpu6050)
 {
 	uint8_t data[14];
-	MPU6050_Readbytes(MPU6050_RA_ACCEL_XOUT_H, 14, data);
+	MPU6050_Readbytes(MPU6050_ACCEL_XOUT_H, 14, data);
 
 	mpu6050->acc_x_raw = (data[0] << 8) | data[1];
 	mpu6050->acc_y_raw = (data[2] << 8) | data[3];
