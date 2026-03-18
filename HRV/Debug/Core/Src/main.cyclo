@@ -1,7 +1,8 @@
-../Core/Src/main.c:74:5:main	1
-../Core/Src/main.c:151:6:SystemClock_Config	4
-../Core/Src/main.c:201:13:MX_I2C1_Init	4
-../Core/Src/main.c:249:13:MX_USART2_UART_Init	2
-../Core/Src/main.c:284:13:MX_GPIO_Init	1
-../Core/Src/main.c:323:6:I2C_Scanner	4
-../Core/Src/main.c:353:6:Error_Handler	1
+../Core/Src/main.c:76:5:main	3
+../Core/Src/main.c:167:6:SystemClock_Config	4
+../Core/Src/main.c:217:13:MX_I2C1_Init	4
+../Core/Src/main.c:265:13:MX_SPI2_Init	2
+../Core/Src/main.c:305:13:MX_USART2_UART_Init	2
+../Core/Src/main.c:340:13:MX_GPIO_Init	1
+../Core/Src/main.c:379:6:I2C_Scanner	4
+../Core/Src/main.c:409:6:Error_Handler	1

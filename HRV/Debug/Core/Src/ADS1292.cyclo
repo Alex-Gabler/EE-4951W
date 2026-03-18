@@ -1,0 +1,8 @@
+../Core/Src/ADS1292.c:10:13:ADS1292_CS_Low	1
+../Core/Src/ADS1292.c:15:13:ADS1292_CS_High	1
+../Core/Src/ADS1292.c:20:6:ADS1292_HardReset	1
+../Core/Src/ADS1292.c:31:19:ADS1292_SendCommand	1
+../Core/Src/ADS1292.c:45:19:ADS1292_ReadRegister	2
+../Core/Src/ADS1292.c:67:19:ADS1292_WriteRegister	1
+../Core/Src/ADS1292.c:85:19:ADS1292_ReadID	2
+../Core/Src/ADS1292.c:99:19:ADS1292_Init	3

@@ -8,8 +8,8 @@
 #ifndef INC_SPI_H_
 #define INC_SPI_H_
 
-#define ADS_CS_GPIO_Port   GPIOB      // change to yours
-#define ADS_CS_Pin         GPIO_PIN_12 // change to yours
+#define ADS_CS_GPIO_Port   GPIOB      // need to change
+#define ADS_CS_Pin         GPIO_PIN_12 // change
 
 static inline void ADS_CS_LOW(void)
 {

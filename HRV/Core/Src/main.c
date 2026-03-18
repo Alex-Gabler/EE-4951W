@@ -23,6 +23,8 @@
 /* USER CODE BEGIN Includes */
 #include "MPU6050.h"
 #include <stdio.h>
+#include "ads1292.h"
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -43,7 +45,7 @@
 /* Private variables ---------------------------------------------------------*/
 I2C_HandleTypeDef hi2c1;
 
-SPI_HandleTypeDef hspi2;
+extern SPI_HandleTypeDef hspi2;
 
 UART_HandleTypeDef huart2;
 
@@ -63,6 +65,7 @@ static void MX_SPI2_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+ADS1292_HandleTypeDef hads1292;
 
 /* USER CODE END 0 */
 
@@ -103,6 +106,34 @@ int main(void)
   // Initialize MPU6050
 //  I2C_Scanner();
   MPU6050_Initialization();
+
+  /*Initialize ADS1292*/
+  uint8_t ads_id = 0;
+
+  hads1292.hspi = &hspi2;
+  hads1292.cs_port = ADS_CS_GPIO_Port;
+  hads1292.cs_pin = ADS_CS_Pin;
+  hads1292.reset_port = ADS_RESET_GPIO_Port;
+  hads1292.reset_pin = ADS_RESET_Pin;
+  hads1292.start_port = ADS_START_GPIO_Port;   // could be NULL if we dont want to start
+  hads1292.start_pin = ADS_START_Pin;          // ^ would be 0 if above is NULL
+
+  if (ADS1292_Init(&hads1292) == HAL_OK)
+  {
+      if (ADS1292_ReadID(&hads1292, &ads_id) == HAL_OK)
+      {
+          printf("ADS1292 ID = 0x%02X\r\n", ads_id);
+      }
+      else
+      {
+          printf("ADS1292 ID read failed\r\n");
+      }
+  }
+  else
+  {
+      printf("ADS1292 init failed\r\n");
+  }
+
 
   /* USER CODE END 2 */
 
@@ -319,7 +350,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, ADS_CS_Pin|LD2_Pin|ADS_RESET_Pin|ADS_START_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : B1_Pin */
   GPIO_InitStruct.Pin = B1_Pin;
@@ -327,12 +358,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : LD2_Pin */
-  GPIO_InitStruct.Pin = LD2_Pin;
+  /*Configure GPIO pins : ADS_CS_Pin LD2_Pin ADS_RESET_Pin ADS_START_Pin */
+  GPIO_InitStruct.Pin = ADS_CS_Pin|LD2_Pin|ADS_RESET_Pin|ADS_START_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(LD2_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PB5 */
   GPIO_InitStruct.Pin = GPIO_PIN_5;
