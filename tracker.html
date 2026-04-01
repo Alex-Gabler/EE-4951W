@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>RESP·SCOPE Web</title>
+<style>
+  :root {
+    --bg:       #040a0f;
+    --panel:    #08111a;
+    --panel2:   #0d1620;
+    --border:   #103047;
+    --grid:     #0e2030;
+    --trace:    #00e5ff;
+    --warn:     #ff4d6d;
+    --green:    #39ff14;
+    --text:     #c8e6f5;
+    --dim:      #3a6070;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    height: 100vh;
+    display: grid;
+    grid-template-rows: 56px 1fr;
+    overflow: hidden;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 0 18px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .title {
+    color: var(--trace);
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
+
+  .status {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--dim);
+  }
+
+  .dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 8px;
+    background: var(--warn);
+    box-shadow: 0 0 10px var(--warn);
+    vertical-align: middle;
+  }
+
+  .dot.live {
+    background: var(--green);
+    box-shadow: 0 0 10px var(--green);
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    min-height: 0;
+  }
+
+  .main {
+    padding: 16px;
+    border-right: 1px solid var(--border);
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .panel {
+    padding: 16px;
+    background: var(--panel);
+    overflow-y: auto;
+  }
+
+  .scope-wrap {
+    height: 100%;
+    min-height: 320px;
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    position: relative;
+    overflow: hidden;
+  }
+
+  #scope {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  .scope-label {
+    position: absolute;
+    top: 12px;
+    left: 14px;
+    font-size: 12px;
+    color: var(--trace);
+    font-weight: 700;
+  }
+
+  .scope-sub {
+    position: absolute;
+    top: 32px;
+    left: 14px;
+    font-size: 11px;
+    color: var(--dim);
+  }
+
+  .readout {
+    position: absolute;
+    top: 12px;
+    right: 14px;
+    text-align: right;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1.5;
+    white-space: pre;
+  }
+
+  .card {
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    padding: 14px;
+    margin-bottom: 12px;
+  }
+
+  .card-title {
+    font-size: 11px;
+    letter-spacing: 1px;
+    color: var(--dim);
+    margin-bottom: 12px;
+    text-transform: uppercase;
+  }
+
+  .metric {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(16,48,71,0.35);
+  }
+
+  .metric:last-child {
+    border-bottom: 0;
+  }
+
+  .metric-label {
+    color: var(--dim);
+    font-size: 12px;
+  }
+
+  .metric-value {
+    font-size: 24px;
+    font-weight: 700;
+  }
+
+  .v-now { color: var(--trace); }
+  .v-max { color: var(--green); }
+  .v-min { color: var(--warn); }
+
+  .row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+
+  input, button {
+    font: inherit;
+  }
+
+  input[type="number"] {
+    width: 100%;
+    background: #06101a;
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 10px;
+    outline: none;
+  }
+
+  button {
+    width: 100%;
+    padding: 10px 12px;
+    background: transparent;
+    border: 1px solid var(--trace);
+    color: var(--trace);
+    cursor: pointer;
+    transition: 0.15s ease;
+  }
+
+  button:hover:not(:disabled) {
+    background: rgba(0,229,255,0.08);
+  }
+
+  button:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  .btn-green {
+    border-color: var(--green);
+    color: var(--green);
+  }
+
+  .btn-green:hover:not(:disabled) {
+    background: rgba(57,255,20,0.08);
+  }
+
+  .btn-red {
+    border-color: var(--warn);
+    color: var(--warn);
+  }
+
+  .btn-red:hover:not(:disabled) {
+    background: rgba(255,77,109,0.08);
+  }
+
+  .log {
+    max-height: 220px;
+    overflow-y: auto;
+    font-size: 11px;
+    line-height: 1.6;
+    color: var(--dim);
+  }
+
+  .log-entry {
+    border-bottom: 1px solid rgba(16,48,71,0.25);
+    padding: 4px 0;
+  }
+</style>
+</head>
+<body>
+  <header>
+    <div class="title">RESP·SCOPE WEB</div>
+    <div class="status" id="statusText"><span class="dot" id="statusDot"></span>DISCONNECTED</div>
+  </header>
+
+  <div class="layout">
+    <div class="main">
+      <div class="scope-wrap">
+        <canvas id="scope"></canvas>
+        <div class="scope-label">LIVE RESPIRATION DISPLACEMENT</div>
+        <div class="scope-sub">Arduino CSV format: value,peakMax,peakMin</div>
+        <div class="readout" id="readout">now +0.00 mm
+▲ +0.00 mm
+▼ +0.00 mm</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="card">
+        <div class="card-title">Serial</div>
+        <div class="row">
+          <label for="baud" style="font-size:12px; color: var(--dim); min-width:52px;">BAUD</label>
+          <input id="baud" type="number" value="115200" />
+        </div>
+        <button id="connectBtn">Connect Device</button>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Live Values</div>
+        <div class="metric">
+          <div class="metric-label">Current</div>
+          <div class="metric-value v-now" id="nowVal">+0.00</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Peak Max</div>
+          <div class="metric-value v-max" id="maxVal">+0.00</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Peak Min</div>
+          <div class="metric-value v-min" id="minVal">+0.00</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Controls</div>
+        <div class="row">
+          <button class="btn-red" id="resetBtn" disabled>Reset Peaks</button>
+        </div>
+        <div class="row">
+          <button class="btn-green" id="calBtn" disabled>Calibrate Baseline</button>
+        </div>
+        <div class="row">
+          <button id="clearBtn">Clear Waveform</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Log</div>
+        <div class="log" id="log"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const canvas = document.getElementById("scope");
+  const ctx = canvas.getContext("2d");
+
+  const statusDot  = document.getElementById("statusDot");
+  const statusText = document.getElementById("statusText");
+  const connectBtn = document.getElementById("connectBtn");
+  const resetBtn   = document.getElementById("resetBtn");
+  const calBtn     = document.getElementById("calBtn");
+  const clearBtn   = document.getElementById("clearBtn");
+
+  const nowVal = document.getElementById("nowVal");
+  const maxVal = document.getElementById("maxVal");
+  const minVal = document.getElementById("minVal");
+  const readout = document.getElementById("readout");
+  const logBox = document.getElementById("log");
+
+  const WINDOW = 500;
+  const Y_MIN = -20;
+  const Y_MAX = 20;
+
+  let samples = new Array(WINDOW).fill(0);
+  let latestValue = 0;
+  let latestMax = 0;
+  let latestMin = 0;
+
+  let port = null;
+  let reader = null;
+  let writer = null;
+  let serialConnected = false;
+  let latestLine = null;
+  let buffer = "";
+
+  function log(msg) {
+    const div = document.createElement("div");
+    div.className = "log-entry";
+    div.textContent = "> " + msg;
+    logBox.prepend(div);
+    while (logBox.children.length > 30) {
+      logBox.removeChild(logBox.lastChild);
+    }
+  }
+
+  function setConnectedUI(connected) {
+    serialConnected = connected;
+    statusDot.classList.toggle("live", connected);
+    statusText.innerHTML = `<span class="dot ${connected ? "live" : ""}" id="statusDot"></span>${connected ? "CONNECTED" : "DISCONNECTED"}`;
+    connectBtn.disabled = connected;
+    connectBtn.textContent = connected ? "Connected" : "Connect Device";
+    resetBtn.disabled = !connected;
+    calBtn.disabled = !connected;
+  }
+
+  function resizeCanvas() {
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = Math.max(300, rect.width * window.devicePixelRatio);
+    canvas.height = Math.max(200, rect.height * window.devicePixelRatio);
+    ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+  }
+
+  function clearWaveform() {
+    samples = new Array(WINDOW).fill(0);
+    log("Waveform cleared");
+  }
+
+  function parseCsvLine(line) {
+    const parts = line.split(",");
+    if (parts.length < 3) return null;
+
+    const value = parseFloat(parts[0]);
+    const pmax  = parseFloat(parts[1]);
+    const pmin  = parseFloat(parts[2]);
+
+    if ([value, pmax, pmin].some(v => Number.isNaN(v))) return null;
+    return { value, pmax, pmin };
+  }
+
+  function pushSample(v) {
+    samples.push(v);
+    if (samples.length > WINDOW) samples.shift();
+  }
+
+  function updateReadouts() {
+    nowVal.textContent = `${latestValue >= 0 ? "+" : ""}${latestValue.toFixed(2)}`;
+    maxVal.textContent = `${latestMax >= 0 ? "+" : ""}${latestMax.toFixed(2)}`;
+    minVal.textContent = `${latestMin >= 0 ? "+" : ""}${latestMin.toFixed(2)}`;
+
+    readout.textContent =
+`now ${latestValue >= 0 ? "+" : ""}${latestValue.toFixed(2)} mm
+▲ ${latestMax >= 0 ? "+" : ""}${latestMax.toFixed(2)} mm
+▼ ${latestMin >= 0 ? "+" : ""}${latestMin.toFixed(2)} mm`;
+
+    readout.style.color = Math.abs(latestValue) > 15 ? "var(--warn)" : "var(--text)";
+  }
+
+  function yToPx(v, height, padTop, padBottom) {
+    const usable = height - padTop - padBottom;
+    const t = (v - Y_MIN) / (Y_MAX - Y_MIN);
+    return height - padBottom - t * usable;
+  }
+
+  function drawScope() {
+    const width = canvas.clientWidth;
+    const height = canvas.clientHeight;
+    ctx.clearRect(0, 0, width, height);
+
+    const padLeft = 48;
+    const padRight = 14;
+    const padTop = 54;
+    const padBottom = 28;
+
+    // background
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--panel2');
+    ctx.fillRect(0, 0, width, height);
+
+    // grid
+    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--grid');
+    ctx.lineWidth = 1;
+
+    for (let i = 0; i <= 8; i++) {
+      const y = padTop + (i / 8) * (height - padTop - padBottom);
+      ctx.beginPath();
+      ctx.moveTo(padLeft, y);
+      ctx.lineTo(width - padRight, y);
+      ctx.stroke();
+    }
+
+    for (let i = 0; i <= 10; i++) {
+      const x = padLeft + (i / 10) * (width - padLeft - padRight);
+      ctx.beginPath();
+      ctx.moveTo(x, padTop);
+      ctx.lineTo(x, height - padBottom);
+      ctx.stroke();
+    }
+
+    // y-axis labels
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--dim');
+    ctx.font = "11px ui-monospace, monospace";
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+
+    const labels = [-20, -10, 0, 10, 20];
+    for (const val of labels) {
+      const y = yToPx(val, height, padTop, padBottom);
+      ctx.fillText(String(val), padLeft - 8, y);
+    }
+
+    // zero line
+    const zeroY = yToPx(0, height, padTop, padBottom);
+    ctx.strokeStyle = "rgba(200,230,245,0.35)";
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(padLeft, zeroY);
+    ctx.lineTo(width - padRight, zeroY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // waveform glow
+    ctx.beginPath();
+    samples.forEach((v, i) => {
+      const x = padLeft + (i / (WINDOW - 1)) * (width - padLeft - padRight);
+      const y = yToPx(v, height, padTop, padBottom);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = "rgba(0,229,255,0.10)";
+    ctx.lineWidth = 6;
+    ctx.stroke();
+
+    // waveform main
+    ctx.beginPath();
+    samples.forEach((v, i) => {
+      const x = padLeft + (i / (WINDOW - 1)) * (width - padLeft - padRight);
+      const y = yToPx(v, height, padTop, padBottom);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--trace');
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+  }
+
+  async function connectSerial() {
+    if (!("serial" in navigator)) {
+      log("Web Serial not supported. Use Chrome or Edge.");
+      alert("Web Serial API is not supported in this browser.\nUse Chrome or Edge.");
+      return;
+    }
+
+    try {
+      log("Requesting serial port...");
+      port = await navigator.serial.requestPort();
+
+      const baud = parseInt(document.getElementById("baud").value, 10) || 115200;
+      await port.open({ baudRate: baud });
+
+      const decoder = new TextDecoderStream();
+      port.readable.pipeTo(decoder.writable);
+      reader = decoder.readable.getReader();
+
+      writer = port.writable.getWriter();
+
+      setConnectedUI(true);
+      log(`Connected at ${baud} baud`);
+      log("Waiting for CSV data...");
+
+      readLoop();
+    } catch (err) {
+      log("Connect failed: " + err.message);
+      setConnectedUI(false);
+    }
+  }
+
+  async function readLoop() {
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (!value) continue;
+
+        buffer += value;
+        const lines = buffer.split("\n");
+        buffer = lines.pop();
+
+        // Keep only the newest full line to stay live
+        for (const raw of lines) {
+          const line = raw.trim();
+          if (!line) continue;
+          latestLine = line;
+        }
+      }
+    } catch (err) {
+      log("Read error: " + err.message);
+    } finally {
+      setConnectedUI(false);
+      log("Disconnected");
+      try {
+        if (reader) {
+          await reader.releaseLock();
+          reader = null;
+        }
+      } catch {}
+      try {
+        if (writer) {
+          writer.releaseLock();
+          writer = null;
+        }
+      } catch {}
+      try {
+        if (port) {
+          await port.close();
+          port = null;
+        }
+      } catch {}
+    }
+  }
+
+  async function sendCommand(cmd) {
+    if (!writer) return;
+    try {
+      await writer.write(new TextEncoder().encode(cmd));
+    } catch (err) {
+      log("Write failed: " + err.message);
+    }
+  }
+
+  async function handleReset() {
+    await sendCommand("r");
+    latestLine = null;
+    log("Sent reset peaks command");
+  }
+
+  async function handleCalibrate() {
+    await sendCommand("b");
+    latestLine = null;
+    log("Sent calibrate baseline command");
+  }
+
+  function animationTick() {
+    if (latestLine) {
+      const parsed = parseCsvLine(latestLine);
+      latestLine = null;
+
+      if (parsed) {
+        latestValue = parsed.value;
+        latestMax = parsed.pmax;
+        latestMin = parsed.pmin;
+        pushSample(latestValue);
+        updateReadouts();
+      }
+    }
+
+    drawScope();
+    requestAnimationFrame(animationTick);
+  }
+
+  window.addEventListener("resize", resizeCanvas);
+  connectBtn.addEventListener("click", connectSerial);
+  resetBtn.addEventListener("click", handleReset);
+  calBtn.addEventListener("click", handleCalibrate);
+  clearBtn.addEventListener("click", clearWaveform);
+
+  resizeCanvas();
+  updateReadouts();
+  drawScope();
+  animationTick();
+  log("Ready");
+  log("Expected format: value,peakMax,peakMin");
+</script>
+</body>
+</html>
