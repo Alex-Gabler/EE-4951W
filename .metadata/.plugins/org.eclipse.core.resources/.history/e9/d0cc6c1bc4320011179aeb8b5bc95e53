@@ -1,0 +1,52 @@
+#ifndef ADS1292R_H
+#define ADS1292R_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include "main.h"
+#include <stdint.h>
+
+/* ===================== PIN MAPPING =====================
+ *
+ *  Signal    Pin   Source
+ *  -------   ----  -------------------------------------------
+ *  CS        PB12  SPI2_NSS — driven as software GPIO output
+ *  START     PA6   ADS_START_Pin  / ADS_START_GPIO_Port  (main.h)
+ *  RESET     PA7   ADS_RESET_Pin  / ADS_RESET_GPIO_Port  (main.h)
+ *  DRDY      PA10  DRDY_Pin       / DRDY_GPIO_Port        (main.h)
+ *  MISO      PC2   SPI2 AF (HAL_SPI_MspInit)
+ *  MOSI      PC3   SPI2 AF (HAL_SPI_MspInit)
+ *  SCK       PB10  SPI2 AF (HAL_SPI_MspInit)
+ *
+ *  PB12 is already configured as a GPIO output in HAL_SPI_MspInit
+ *  (AF5 SPI2_NSS).  Because we use SPI_NSS_SOFT in MX_SPI2_Init the
+ *  pin is reconfigured here as a plain push-pull output so we can
+ *  toggle it manually for precise CS framing.
+ */
+#define ADS_CS_Pin          GPIO_PIN_12
+#define ADS_CS_GPIO_Port    GPIOB
+
+/* ADS1292R SPI commands */
+#define ADS_CMD_RESET   0x06
+#define ADS_CMD_START   0x08
+#define ADS_CMD_RDATAC  0x10
+#define ADS_CMD_SDATAC  0x11
+
+/**
+ * @brief  Initialise ADS1292R. Call once from main() after all MX_xxx_Init().
+ */
+void ADS1292R_Init(void);
+
+/**
+ * @brief  Call every iteration of while(1).
+ *         Non-blocking. Processes a sample only when DRDY ISR has flagged one.
+ */
+void ADS1292R_Process(void);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* ADS1292R_H */

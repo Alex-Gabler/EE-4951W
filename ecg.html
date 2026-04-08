@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ECG·SCOPE</title>
+<style>
+  :root {
+    --bg:      #040a0f;
+    --panel:   #08111a;
+    --panel2:  #0d1620;
+    --border:  #103047;
+    --grid:    #0e2030;
+    --trace:   #00e5ff;
+    --warn:    #ff4d6d;
+    --green:   #39ff14;
+    --text:    #c8e6f5;
+    --dim:     #3a6070;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    height: 100vh;
+    display: grid;
+    grid-template-rows: 52px 1fr;
+    overflow: hidden;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 0 20px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .title {
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: var(--trace);
+  }
+
+  .hdr-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+  }
+
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--warn);
+    box-shadow: 0 0 8px var(--warn);
+    display: inline-block;
+  }
+
+  .dot.live {
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+  }
+
+  #statusText { color: var(--dim); }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    min-height: 0;
+  }
+
+  /* ---- scope side ---- */
+  .scope-side {
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .scope-wrap {
+    flex: 1;
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    position: relative;
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  #scope {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  /* bottom strip — BPM history bars */
+  .bpm-strip {
+    height: 64px;
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    position: relative;
+    overflow: hidden;
+  }
+
+  #bpmCanvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  /* ---- right panel ---- */
+  .panel {
+    background: var(--panel);
+    border-left: 1px solid var(--border);
+    padding: 16px 14px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .card {
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    padding: 12px 14px;
+  }
+
+  .card-title {
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    color: var(--dim);
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+
+  /* big BPM readout */
+  .bpm-big {
+    font-size: 64px;
+    font-weight: 700;
+    color: var(--trace);
+    line-height: 1;
+    text-align: center;
+    padding: 8px 0 4px;
+    transition: color 0.3s;
+  }
+
+  .bpm-label {
+    text-align: center;
+    font-size: 11px;
+    color: var(--dim);
+    letter-spacing: 2px;
+    margin-bottom: 6px;
+  }
+
+  /* metric rows */
+  .metric {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 5px 0;
+    border-bottom: 1px solid rgba(16,48,71,0.4);
+  }
+  .metric:last-child { border-bottom: 0; }
+  .metric-label { color: var(--dim); font-size: 11px; }
+  .metric-val   { font-size: 18px; font-weight: 700; }
+
+  /* controls */
+  .ctrl-row { display: flex; gap: 8px; margin-bottom: 8px; }
+  .ctrl-row:last-child { margin-bottom: 0; }
+
+  button {
+    flex: 1;
+    padding: 9px 10px;
+    background: transparent;
+    border: 1px solid var(--trace);
+    color: var(--trace);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  button:hover:not(:disabled) { background: rgba(0,229,255,0.07); }
+  button:disabled { opacity: 0.4; cursor: default; }
+
+  .btn-green { border-color: var(--green); color: var(--green); }
+  .btn-green:hover:not(:disabled) { background: rgba(57,255,20,0.07); }
+
+  .btn-red { border-color: var(--warn); color: var(--warn); }
+  .btn-red:hover:not(:disabled) { background: rgba(255,77,109,0.07); }
+
+  /* slider row */
+  .sl-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    font-size: 11px;
+    color: var(--dim);
+  }
+  .sl-row:last-child { margin-bottom: 0; }
+  .sl-row input[type=range] {
+    flex: 1;
+    accent-color: var(--trace);
+    height: 3px;
+    border: none;
+    padding: 0;
+    background: transparent;
+  }
+  .sl-val { min-width: 38px; text-align: right; color: var(--text); }
+
+  /* log */
+  .log {
+    max-height: 130px;
+    overflow-y: auto;
+    font-size: 10px;
+    line-height: 1.7;
+    color: var(--dim);
+  }
+  .log-line { border-bottom: 1px solid rgba(16,48,71,0.2); padding: 1px 0; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="title">ECG · SCOPE</div>
+  <div class="hdr-right">
+    <span class="dot" id="statusDot"></span>
+    <span id="statusText">DISCONNECTED</span>
+  </div>
+</header>
+
+<div class="layout">
+
+  <!-- scope + BPM strip -->
+  <div class="scope-side">
+    <div class="scope-wrap">
+      <canvas id="scope"></canvas>
+    </div>
+    <div class="bpm-strip">
+      <canvas id="bpmCanvas"></canvas>
+    </div>
+  </div>
+
+  <!-- right panel -->
+  <div class="panel">
+
+    <!-- BPM card -->
+    <div class="card">
+      <div class="card-title">Heart Rate</div>
+      <div class="bpm-big" id="bpmBig">---</div>
+      <div class="bpm-label">BPM</div>
+    </div>
+
+    <!-- live values -->
+    <div class="card">
+      <div class="card-title">Live Values</div>
+      <div class="metric">
+        <div class="metric-label">Current mV</div>
+        <div class="metric-val" id="nowMv" style="color:var(--trace)">+0.000</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Peak mV</div>
+        <div class="metric-val" id="peakMv" style="color:var(--green)">+0.000</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">RR interval</div>
+        <div class="metric-val" id="rrMs" style="color:var(--text)">--- ms</div>
+      </div>
+    </div>
+
+    <!-- HRV card -->
+    <div class="card">
+      <div class="card-title">HRV Metrics</div>
+      <div class="metric">
+        <div class="metric-label">SDNN</div>
+        <div class="metric-val" id="hrvSdnn" style="color:var(--trace)">--- ms</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">RMSSD</div>
+        <div class="metric-val" id="hrvRmssd" style="color:var(--green)">--- ms</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">pNN50</div>
+        <div class="metric-val" id="hrvPnn50" style="color:var(--text)">--- %</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Beats in window</div>
+        <div class="metric-val" id="hrvBeats" style="color:var(--dim);font-size:14px">---</div>
+      </div>
+    </div>
+
+    <!-- serial -->
+    <div class="card">
+      <div class="card-title">Serial</div>
+      <div class="ctrl-row">
+        <button id="connectBtn">Connect Arduino</button>
+      </div>
+    </div>
+
+    <!-- display -->
+    <div class="card">
+      <div class="card-title">Display</div>
+      <div class="sl-row">
+        <span>Y ± mV</span>
+        <input type="range" id="yRange" min="0.2" max="5" step="0.1" value="1.5"
+               oninput="yRangeVal.textContent=parseFloat(this.value).toFixed(1)">
+        <span class="sl-val" id="yRangeVal">1.5</span>
+      </div>
+      <div class="sl-row">
+        <span>Speed</span>
+        <input type="range" id="speedSl" min="100" max="1000" step="50" value="500"
+               oninput="speedVal.textContent=this.value">
+        <span class="sl-val" id="speedVal">500</span>
+      </div>
+    </div>
+
+    <!-- BPM detection -->
+    <div class="card">
+      <div class="card-title">BPM Detection</div>
+      <div class="sl-row">
+        <span>Threshold</span>
+        <input type="range" id="threshSl" min="0.05" max="2" step="0.05" value="0.4"
+               oninput="threshVal.textContent=parseFloat(this.value).toFixed(2); bpmDet.threshold=parseFloat(this.value)">
+        <span class="sl-val" id="threshVal">0.40</span>
+      </div>
+      <div class="sl-row">
+        <span>Refractory</span>
+        <input type="range" id="refractSl" min="10" max="80" step="5" value="40"
+               oninput="refractVal.textContent=this.value; bpmDet.refractory=parseInt(this.value)">
+        <span class="sl-val" id="refractVal">40</span>
+      </div>
+    </div>
+
+    <!-- controls -->
+    <div class="card">
+      <div class="card-title">Controls</div>
+      <div class="ctrl-row">
+        <button class="btn-red" onclick="resetPeaks()">Reset Peaks</button>
+        <button onclick="clearWave()">Clear Wave</button>
+      </div>
+    </div>
+
+    <!-- log -->
+    <div class="card">
+      <div class="card-title">Log</div>
+      <div class="log" id="log"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ===================== CONFIG =====================
+const WINDOW  = 500;
+const SR      = 100;    // decimated sample rate
+
+// ===================== STATE =====================
+let samples   = new Float32Array(WINDOW);
+let peakMv    = 0;
+let nowMv     = 0;
+
+// BPM history for the strip
+const BPM_HIST = 60;
+let bpmHistory = new Array(BPM_HIST).fill(0);
+
+// HRV state
+let hrv = { sdnn: null, rmssd: null, pnn50: null, beats: 0 };
+
+// ===================== BPM DETECTOR =====================
+const bpmDet = {
+  threshold:   0.4,
+  refractory:  40,
+  peak:        0,
+  baseline:    0,
+  inPeak:      false,
+  lastIdx:     0,
+  sampleCount: 0,
+  rrAvg:       0,
+  bpm:         0,
+  rrMs:        0,
+
+  process(mv) {
+    this.sampleCount++;
+    this.baseline = 0.999 * this.baseline + 0.001 * mv;
+    const c = mv - this.baseline;
+
+    if (!this.inPeak && c > this.threshold) {
+      this.inPeak = true;
+      this.peak   = c;
+    }
+
+    if (this.inPeak) {
+      if (c > this.peak) this.peak = c;
+
+      if (c < this.threshold * 0.5) {
+        this.inPeak = false;
+        const rr = this.sampleCount - this.lastIdx;
+
+        if (rr > this.refractory) {
+          this.lastIdx = this.sampleCount;
+
+          if (this.rrAvg === 0) {
+            this.rrAvg = rr;
+          } else {
+            this.rrAvg = 0.75 * this.rrAvg + 0.25 * rr;
+          }
+
+          this.bpm   = (SR * 60) / this.rrAvg;
+          this.rrMs  = Math.round(this.rrAvg * (1000 / SR));
+
+          // adapt threshold
+          this.threshold = Math.max(0.05, Math.min(2.0, 0.5 * this.peak));
+          document.getElementById("threshSl").value = this.threshold.toFixed(2);
+          document.getElementById("threshVal").textContent = this.threshold.toFixed(2);
+
+          // push to BPM history
+          bpmHistory.push(this.bpm);
+          if (bpmHistory.length > BPM_HIST) bpmHistory.shift();
+        }
+
+        this.peak = 0;
+      }
+    }
+  }
+};
+
+// ===================== SERIAL =====================
+let port   = null;
+let reader = null;
+let buffer = "";
+
+document.getElementById("connectBtn").addEventListener("click", toggleConnect);
+
+async function toggleConnect() {
+  if (port) {
+    await doDisconnect();
+  } else {
+    await doConnect();
+  }
+}
+
+async function doConnect() {
+  if (!("serial" in navigator)) {
+    alert("Web Serial is not supported.\nUse Chrome or Edge and open this file via a local server or file://");
+    return;
+  }
+  try {
+    log("Requesting port...");
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 115200 });
+
+    const dec = new TextDecoderStream();
+    port.readable.pipeTo(dec.writable);
+    reader = dec.readable.getReader();
+
+    setConnected(true);
+    log("Connected at 115200 baud");
+    readLoop();
+  } catch(e) {
+    log("Connect failed: " + e.message);
+    port = null;
+  }
+}
+
+async function doDisconnect() {
+  try {
+    if (reader) { await reader.cancel(); reader = null; }
+    if (port)   { await port.close();   port   = null; }
+  } catch(e) {}
+  setConnected(false);
+  log("Disconnected");
+}
+
+async function readLoop() {
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+
+      buffer += value;
+      const lines = buffer.split("\n");
+      buffer = lines.pop();
+
+      for (const raw of lines) {
+        const line = raw.trim();
+        if (!line) continue;
+
+        // Print non-data lines to log
+        if (isNaN(parseFloat(line)) || line.startsWith("#")
+            || line.startsWith("=") || line.startsWith("ECG")
+            || line.startsWith("Ready") || line.startsWith("ALL")
+            || line.startsWith("CONFIG") || line.startsWith("ID")
+            || line.startsWith("PASS") || line.startsWith("FAIL")) {
+
+          // Parse HRV line: # HRV SDNN=xx.x RMSSD=xx.x pNN50=xx.x RR=xxx BEATS=xx
+          if (line.startsWith("# HRV SDNN=")) {
+            const sdnnM  = line.match(/SDNN=([\d.]+)/);
+            const rmssdM = line.match(/RMSSD=([\d.]+)/);
+            const pnn50M = line.match(/pNN50=([\d.]+)/);
+            const beatsM = line.match(/BEATS=(\d+)/);
+            if (sdnnM)  hrv.sdnn  = parseFloat(sdnnM[1]);
+            if (rmssdM) hrv.rmssd = parseFloat(rmssdM[1]);
+            if (pnn50M) hrv.pnn50 = parseFloat(pnn50M[1]);
+            if (beatsM) hrv.beats = parseInt(beatsM[1]);
+          }
+
+          log(line);
+          continue;
+        }
+
+        // Data sample
+        const mv = parseFloat(line);
+        if (isNaN(mv)) continue;
+
+        nowMv = mv;
+        if (Math.abs(mv) > Math.abs(peakMv)) peakMv = mv;
+
+        // Shift samples buffer
+        samples.copyWithin(0, 1);
+        samples[WINDOW - 1] = mv;
+
+        bpmDet.process(mv);
+      }
+    }
+  } catch(e) {
+    if (port) log("Read error: " + e.message);
+  } finally {
+    setConnected(false);
+  }
+}
+
+function setConnected(on) {
+  const dot = document.getElementById("statusDot");
+  const txt = document.getElementById("statusText");
+  const btn = document.getElementById("connectBtn");
+  dot.classList.toggle("live", on);
+  txt.textContent = on ? "CONNECTED" : "DISCONNECTED";
+  btn.textContent = on ? "Disconnect" : "Connect Arduino";
+}
+
+// ===================== CONTROLS =====================
+function resetPeaks() {
+  peakMv = 0;
+  bpmDet.bpm = 0;
+  bpmDet.rrAvg = 0;
+  bpmDet.rrMs = 0;
+  bpmHistory = new Array(BPM_HIST).fill(0);
+  hrv = { sdnn: null, rmssd: null, pnn50: null, beats: 0 };
+  log("Peaks reset");
+}
+
+function clearWave() {
+  samples = new Float32Array(WINDOW);
+  peakMv = 0;
+  log("Waveform cleared");
+}
+
+// ===================== LOG =====================
+function log(msg) {
+  const box = document.getElementById("log");
+  const d = document.createElement("div");
+  d.className = "log-line";
+  d.textContent = "> " + msg;
+  box.prepend(d);
+  while (box.children.length > 40) box.removeChild(box.lastChild);
+}
+
+// ===================== DRAWING =====================
+const scopeCanvas = document.getElementById("scope");
+const sc          = scopeCanvas.getContext("2d");
+const bpmCanvas   = document.getElementById("bpmCanvas");
+const bc          = bpmCanvas.getContext("2d");
+
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+
+  const sr = scopeCanvas.getBoundingClientRect();
+  scopeCanvas.width  = sr.width  * dpr;
+  scopeCanvas.height = sr.height * dpr;
+  sc.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  const br = bpmCanvas.getBoundingClientRect();
+  bpmCanvas.width  = br.width  * dpr;
+  bpmCanvas.height = br.height * dpr;
+  bc.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+window.addEventListener("resize", resize);
+
+function drawScope() {
+  const w = scopeCanvas.clientWidth;
+  const h = scopeCanvas.clientHeight;
+  if (w < 10 || h < 10) return;
+
+  sc.clearRect(0, 0, w, h);
+
+  const PL = 52, PR = 14, PT = 44, PB = 30;
+  const yr = parseFloat(document.getElementById("yRange").value);
+
+  function yp(v) {
+    const t = (v + yr) / (2 * yr);
+    return h - PB - t * (h - PT - PB);
+  }
+  function xp(i) {
+    return PL + i / (WINDOW - 1) * (w - PL - PR);
+  }
+
+  // background
+  sc.fillStyle = "#0d1620";
+  sc.fillRect(0, 0, w, h);
+
+  // grid
+  sc.strokeStyle = "#0e2030";
+  sc.lineWidth = 1;
+
+  // horizontal grid lines at -yr, -yr/2, 0, yr/2, yr
+  [-yr, -yr/2, 0, yr/2, yr].forEach(v => {
+    const y = yp(v);
+    sc.beginPath();
+    sc.moveTo(PL, y);
+    sc.lineTo(w - PR, y);
+    sc.stroke();
+  });
+
+  // vertical grid lines
+  for (let i = 0; i <= 10; i++) {
+    const x = PL + i / 10 * (w - PL - PR);
+    sc.beginPath();
+    sc.moveTo(x, PT);
+    sc.lineTo(x, h - PB);
+    sc.stroke();
+  }
+
+  // zero line
+  sc.strokeStyle = "#1a3550";
+  sc.setLineDash([4, 4]);
+  sc.beginPath();
+  sc.moveTo(PL, yp(0));
+  sc.lineTo(w - PR, yp(0));
+  sc.stroke();
+  sc.setLineDash([]);
+
+  // Y axis labels
+  sc.fillStyle = "#3a6070";
+  sc.font = "10px ui-monospace, monospace";
+  sc.textAlign = "right";
+  sc.textBaseline = "middle";
+  [-yr, -yr/2, 0, yr/2, yr].forEach(v => {
+    sc.fillText(v.toFixed(1), PL - 6, yp(v));
+  });
+
+  // X axis time labels
+  sc.textAlign = "center";
+  sc.textBaseline = "top";
+  const speed = parseInt(document.getElementById("speedSl").value);
+  for (let i = 0; i <= 5; i++) {
+    const x = PL + i / 5 * (w - PL - PR);
+    const t = ((i / 5) * WINDOW / SR).toFixed(1);
+    sc.fillText(t + "s", x, h - PB + 4);
+  }
+
+  // glow
+  sc.beginPath();
+  for (let i = 0; i < WINDOW; i++) {
+    const x = xp(i), y = yp(samples[i]);
+    i === 0 ? sc.moveTo(x, y) : sc.lineTo(x, y);
+  }
+  sc.strokeStyle = "rgba(0,229,255,0.08)";
+  sc.lineWidth = 7;
+  sc.stroke();
+
+  // main trace
+  sc.beginPath();
+  for (let i = 0; i < WINDOW; i++) {
+    const x = xp(i), y = yp(samples[i]);
+    i === 0 ? sc.moveTo(x, y) : sc.lineTo(x, y);
+  }
+  sc.strokeStyle = "#00e5ff";
+  sc.lineWidth = 1.5;
+  sc.stroke();
+
+  // scope title
+  sc.fillStyle = "#00e5ff";
+  sc.font = "bold 12px ui-monospace, monospace";
+  sc.textAlign = "left";
+  sc.textBaseline = "top";
+  sc.fillText("LIVE ECG", PL + 8, 12);
+
+  // mV readout top right
+  const mvColor = Math.abs(nowMv) > yr * 0.9 ? "#ff4d6d" : "#c8e6f5";
+  sc.fillStyle = mvColor;
+  sc.font = "12px ui-monospace, monospace";
+  sc.textAlign = "right";
+  sc.fillText(`${nowMv >= 0 ? "+" : ""}${nowMv.toFixed(3)} mV`, w - PR, 12);
+
+  // border
+  sc.strokeStyle = "#103047";
+  sc.lineWidth = 1;
+  sc.strokeRect(PL, PT, w - PL - PR, h - PT - PB);
+}
+
+function drawBPMStrip() {
+  const w = bpmCanvas.clientWidth;
+  const h = bpmCanvas.clientHeight;
+  if (w < 10 || h < 10) return;
+
+  bc.clearRect(0, 0, w, h);
+  bc.fillStyle = "#0d1620";
+  bc.fillRect(0, 0, w, h);
+
+  const PL = 52, PR = 14, PT = 8, PB = 18;
+  const maxBPM = 200;
+  const minBPM = 40;
+
+  function yp(bpm) {
+    const t = (bpm - minBPM) / (maxBPM - minBPM);
+    return h - PB - t * (h - PT - PB);
+  }
+
+  // grid line at 60 and 100
+  bc.strokeStyle = "#0e2030";
+  bc.lineWidth = 1;
+  [60, 100, 140].forEach(v => {
+    const y = yp(v);
+    bc.beginPath();
+    bc.moveTo(PL, y);
+    bc.lineTo(w - PR, y);
+    bc.stroke();
+    bc.fillStyle = "#3a6070";
+    bc.font = "9px ui-monospace, monospace";
+    bc.textAlign = "right";
+    bc.textBaseline = "middle";
+    bc.fillText(v, PL - 4, y);
+  });
+
+  // BPM bars
+  const barW = (w - PL - PR) / BPM_HIST;
+  bpmHistory.forEach((bpm, i) => {
+    if (bpm <= 0) return;
+    const x = PL + i * barW;
+    const y = yp(bpm);
+    const barH = h - PB - y;
+    const color = bpm < 60 ? "#ff4d6d"
+                : bpm > 100 ? "#ff4d6d"
+                : "#39ff14";
+    bc.fillStyle = color + "88";
+    bc.fillRect(x + 1, y, barW - 2, barH);
+  });
+
+  // label
+  bc.fillStyle = "#3a6070";
+  bc.font = "9px ui-monospace, monospace";
+  bc.textAlign = "left";
+  bc.textBaseline = "top";
+  bc.fillText("BPM HISTORY", PL + 4, PT);
+
+  // border
+  bc.strokeStyle = "#103047";
+  bc.lineWidth = 1;
+  bc.strokeRect(PL, PT, w - PL - PR, h - PT - PB);
+}
+
+function updateMetrics() {
+  // BPM big number
+  const bpmEl = document.getElementById("bpmBig");
+  if (bpmDet.bpm > 0) {
+    bpmEl.textContent = Math.round(bpmDet.bpm);
+    bpmEl.style.color = (bpmDet.bpm < 40 || bpmDet.bpm > 150)
+      ? "#ff4d6d" : "#00e5ff";
+  } else {
+    bpmEl.textContent = "---";
+    bpmEl.style.color = "#00e5ff";
+  }
+
+  document.getElementById("nowMv").textContent =
+    `${nowMv >= 0 ? "+" : ""}${nowMv.toFixed(3)}`;
+
+  document.getElementById("peakMv").textContent =
+    `${peakMv >= 0 ? "+" : ""}${peakMv.toFixed(3)}`;
+
+  document.getElementById("rrMs").textContent =
+    bpmDet.rrMs > 0 ? `${bpmDet.rrMs} ms` : "--- ms";
+
+  // HRV metrics
+  const sdnnEl  = document.getElementById("hrvSdnn");
+  const rmssdEl = document.getElementById("hrvRmssd");
+  const pnn50El = document.getElementById("hrvPnn50");
+  const beatsEl = document.getElementById("hrvBeats");
+
+  if (hrv.sdnn !== null) {
+    sdnnEl.textContent  = hrv.sdnn.toFixed(1)  + " ms";
+    rmssdEl.textContent = hrv.rmssd.toFixed(1) + " ms";
+    pnn50El.textContent = hrv.pnn50.toFixed(1) + " %";
+    beatsEl.textContent = hrv.beats + " beats";
+
+    // Colour RMSSD by parasympathetic tone: >40 good (green), 20-40 ok (cyan), <20 low (warn)
+    rmssdEl.style.color = hrv.rmssd > 40 ? "var(--green)"
+                        : hrv.rmssd > 20 ? "var(--trace)"
+                        : "var(--warn)";
+  } else {
+    sdnnEl.textContent  = "--- ms";
+    rmssdEl.textContent = "--- ms";
+    pnn50El.textContent = "--- %";
+    beatsEl.textContent = hrv.beats > 0 ? `${hrv.beats}/8 beats` : "---";
+  }
+}
+
+function frame() {
+  drawScope();
+  drawBPMStrip();
+  updateMetrics();
+  requestAnimationFrame(frame);
+}
+
+resize();
+frame();
+</script>
+</body>
+</html>

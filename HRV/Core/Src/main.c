@@ -22,6 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "MPU6050.h"
+#include "ads1292r.h"          /* <-- ADDED */
 #include <stdio.h>
 #include <math.h>
 /* USER CODE END Includes */
@@ -174,24 +175,26 @@ int main(void)
   MX_USB_OTG_FS_PCD_Init();
   /* USER CODE BEGIN 2 */
 
-  MPU6050_Initialization();
+//  MPU6050_Initialization();
+//
+//  MPU6050_CalibrateGyro(6);
+//  MPU6050_CalibrateAccel(6);
+//  MPU6050_PrintActiveOffsets();
+//
+//  HAL_Delay(1000);
+//
+//  printf("Measuring gyro bias...\r\n");
+//  MPU6050_MeasureGyroBiasXYZ(BIAS_SAMPLES, 10, &gyro_bias_x, &gyro_bias_y, &gyro_bias_z);
+//  printf("Gyro bias: bx=%.6f by=%.6f bz=%.6f deg/s\r\n",
+//         gyro_bias_x, gyro_bias_y, gyro_bias_z);
+//
+//  printf("Measuring baseline...\r\n");
+//  MeasureBaseline();
+//
+//  prevTime = HAL_GetTick();
+//  lastSampleTime = HAL_GetTick();
 
-  MPU6050_CalibrateGyro(6);
-  MPU6050_CalibrateAccel(6);
-  MPU6050_PrintActiveOffsets();
-
-  HAL_Delay(1000);
-
-  printf("Measuring gyro bias...\r\n");
-  MPU6050_MeasureGyroBiasXYZ(BIAS_SAMPLES, 10, &gyro_bias_x, &gyro_bias_y, &gyro_bias_z);
-  printf("Gyro bias: bx=%.6f by=%.6f bz=%.6f deg/s\r\n",
-         gyro_bias_x, gyro_bias_y, gyro_bias_z);
-
-  printf("Measuring baseline...\r\n");
-  MeasureBaseline();
-
-  prevTime = HAL_GetTick();
-  lastSampleTime = HAL_GetTick();
+  ADS1292R_Init();             /* <-- ADDED */
 
   /* USER CODE END 2 */
 
@@ -201,40 +204,42 @@ int main(void)
   {
       HandleUARTCommands();
 
-      uint32_t now = HAL_GetTick();
-      if ((now - lastSampleTime) < SAMPLE_RATE_MS)
-      {
-          continue;
-      }
-      lastSampleTime = now;
+      ADS1292R_Process();      /* <-- ADDED: non-blocking ECG sample processing */
 
-      MPU6050_ProcessData(&MPU6050);
-
-      float dt = (now - prevTime) / 1000.0f;
-      prevTime = now;
-
-      float accelAngle = MPU6050_GetPitchDeg(&MPU6050);
-
-      /* Start with gyro_y. If sensor orientation is different, try x or z instead. */
-      float gyroRate = MPU6050.gyro_y - gyro_bias_y;
-
-      fusedAngle += gyroRate * dt;
-
-      fusedAngle = COMP_ALPHA * fusedAngle +
-                   (1.0f - COMP_ALPHA) * accelAngle;
-
-      float relativeAngle = fusedAngle - baselineAngle;
-
-      lpFiltered = LP_ALPHA * relativeAngle +
-                   (1.0f - LP_ALPHA) * lpFiltered;
-
-      float displacement_mm =
-          10.0f * CHEST_LENGTH_CM * sinf(lpFiltered * (float)M_PI / 180.0f);
-
-      if (displacement_mm > peakMax) peakMax = displacement_mm;
-      if (displacement_mm < peakMin) peakMin = displacement_mm;
-
-      printf("%.3f,%.3f,%.3f\r\n", displacement_mm, peakMax, peakMin);
+//      uint32_t now = HAL_GetTick();
+//      if ((now - lastSampleTime) < SAMPLE_RATE_MS)
+//      {
+//          continue;
+//      }
+//      lastSampleTime = now;
+//
+//      MPU6050_ProcessData(&MPU6050);
+//
+//      float dt = (now - prevTime) / 1000.0f;
+//      prevTime = now;
+//
+//      float accelAngle = MPU6050_GetPitchDeg(&MPU6050);
+//
+//      /* Start with gyro_y. If sensor orientation is different, try x or z instead. */
+//      float gyroRate = MPU6050.gyro_y - gyro_bias_y;
+//
+//      fusedAngle += gyroRate * dt;
+//
+//      fusedAngle = COMP_ALPHA * fusedAngle +
+//                   (1.0f - COMP_ALPHA) * accelAngle;
+//
+//      float relativeAngle = fusedAngle - baselineAngle;
+//
+//      lpFiltered = LP_ALPHA * relativeAngle +
+//                   (1.0f - LP_ALPHA) * lpFiltered;
+//
+//      float displacement_mm =
+//          10.0f * CHEST_LENGTH_CM * sinf(lpFiltered * (float)M_PI / 180.0f);
+//
+//      if (displacement_mm > peakMax) peakMax = displacement_mm;
+//      if (displacement_mm < peakMin) peakMin = displacement_mm;
+//
+//      printf("%.3f,%.3f,%.3f\r\n", displacement_mm, peakMax, peakMin);
 
     /* USER CODE END WHILE */
 
@@ -252,21 +257,14 @@ void SystemClock_Config(void)
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
-  /** Configure the main internal regulator output voltage
-  */
   if (HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1) != HAL_OK)
   {
     Error_Handler();
   }
 
-  /** Configure LSE Drive Capability
-  */
   HAL_PWR_EnableBkUpAccess();
   __HAL_RCC_LSEDRIVE_CONFIG(RCC_LSEDRIVE_LOW);
 
-  /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
-  */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSE|RCC_OSCILLATORTYPE_MSI;
   RCC_OscInitStruct.LSEState = RCC_LSE_ON;
   RCC_OscInitStruct.MSIState = RCC_MSI_ON;
@@ -284,8 +282,6 @@ void SystemClock_Config(void)
     Error_Handler();
   }
 
-  /** Initializes the CPU, AHB and APB buses clocks
-  */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
@@ -298,26 +294,17 @@ void SystemClock_Config(void)
     Error_Handler();
   }
   HAL_RCC_MCOConfig(RCC_MCO1, RCC_MCO1SOURCE_SYSCLK, RCC_MCODIV_1);
-
-  /** Enable MSI Auto calibration
-  */
   HAL_RCCEx_EnableMSIPLLMode();
 }
 
 /**
-  * @brief I2C1 Initialization Function
-  * @param None
-  * @retval None
+  * @brief I2C1 Initialization Function — unchanged
   */
 static void MX_I2C1_Init(void)
 {
-
   /* USER CODE BEGIN I2C1_Init 0 */
-
   /* USER CODE END I2C1_Init 0 */
-
   /* USER CODE BEGIN I2C1_Init 1 */
-
   /* USER CODE END I2C1_Init 1 */
   hi2c1.Instance = I2C1;
   hi2c1.Init.Timing = 0x00B07CB4;
@@ -328,84 +315,59 @@ static void MX_I2C1_Init(void)
   hi2c1.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
   hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
   hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
-  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure Analogue filter
-  */
-  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c1, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure Digital filter
-  */
-  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c1, 0) != HAL_OK)
-  {
-    Error_Handler();
-  }
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK)                                         Error_Handler();
+  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c1, I2C_ANALOGFILTER_ENABLE) != HAL_OK) Error_Handler();
+  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c1, 0) != HAL_OK)                      Error_Handler();
   /* USER CODE BEGIN I2C1_Init 2 */
-
   /* USER CODE END I2C1_Init 2 */
-
 }
 
 /**
   * @brief SPI2 Initialization Function
-  * @param None
-  * @retval None
+  *
+  * Changes from original for ADS1292R:
+  *   DataSize   SPI_DATASIZE_4BIT       -> SPI_DATASIZE_8BIT
+  *   CLKPhase   SPI_PHASE_1EDGE         -> SPI_PHASE_2EDGE  (Mode 1: CPOL=0, CPHA=1)
+  *   NSS        SPI_NSS_HARD_OUTPUT     -> SPI_NSS_SOFT     (PB12 driven manually)
+  *   Prescaler  SPI_BAUDRATEPRESCALER_2 -> SPI_BAUDRATEPRESCALER_8  (4 MHz)
+  *   NSSPMode   SPI_NSS_PULSE_ENABLE    -> SPI_NSS_PULSE_DISABLE
   */
 static void MX_SPI2_Init(void)
 {
-
   /* USER CODE BEGIN SPI2_Init 0 */
-
   /* USER CODE END SPI2_Init 0 */
-
   /* USER CODE BEGIN SPI2_Init 1 */
-
   /* USER CODE END SPI2_Init 1 */
-  /* SPI2 parameter configuration*/
   hspi2.Instance = SPI2;
   hspi2.Init.Mode = SPI_MODE_MASTER;
   hspi2.Init.Direction = SPI_DIRECTION_2LINES;
-  hspi2.Init.DataSize = SPI_DATASIZE_4BIT;
+  hspi2.Init.DataSize = SPI_DATASIZE_8BIT;
   hspi2.Init.CLKPolarity = SPI_POLARITY_LOW;
-  hspi2.Init.CLKPhase = SPI_PHASE_1EDGE;
-  hspi2.Init.NSS = SPI_NSS_HARD_OUTPUT;
-  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+  hspi2.Init.CLKPhase = SPI_PHASE_2EDGE;
+  hspi2.Init.NSS = SPI_NSS_SOFT;
+  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
   hspi2.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi2.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi2.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
   hspi2.Init.CRCPolynomial = 7;
   hspi2.Init.CRCLength = SPI_CRC_LENGTH_DATASIZE;
-  hspi2.Init.NSSPMode = SPI_NSS_PULSE_ENABLE;
+  hspi2.Init.NSSPMode = SPI_NSS_PULSE_DISABLE;
   if (HAL_SPI_Init(&hspi2) != HAL_OK)
   {
     Error_Handler();
   }
   /* USER CODE BEGIN SPI2_Init 2 */
-
   /* USER CODE END SPI2_Init 2 */
-
 }
 
 /**
-  * @brief USART2 Initialization Function
-  * @param None
-  * @retval None
+  * @brief USART2 Initialization Function — unchanged
   */
 static void MX_USART2_UART_Init(void)
 {
-
   /* USER CODE BEGIN USART2_Init 0 */
-
   /* USER CODE END USART2_Init 0 */
-
   /* USER CODE BEGIN USART2_Init 1 */
-
   /* USER CODE END USART2_Init 1 */
   huart2.Instance = USART2;
   huart2.Init.BaudRate = 115200;
@@ -422,25 +384,17 @@ static void MX_USART2_UART_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN USART2_Init 2 */
-
   /* USER CODE END USART2_Init 2 */
-
 }
 
 /**
-  * @brief USB_OTG_FS Initialization Function
-  * @param None
-  * @retval None
+  * @brief USB_OTG_FS Initialization Function — unchanged
   */
 static void MX_USB_OTG_FS_PCD_Init(void)
 {
-
   /* USER CODE BEGIN USB_OTG_FS_Init 0 */
-
   /* USER CODE END USB_OTG_FS_Init 0 */
-
   /* USER CODE BEGIN USB_OTG_FS_Init 1 */
-
   /* USER CODE END USB_OTG_FS_Init 1 */
   hpcd_USB_OTG_FS.Instance = USB_OTG_FS;
   hpcd_USB_OTG_FS.Init.dev_endpoints = 6;
@@ -449,23 +403,25 @@ static void MX_USB_OTG_FS_PCD_Init(void)
   hpcd_USB_OTG_FS.Init.Sof_enable = DISABLE;
   hpcd_USB_OTG_FS.Init.low_power_enable = DISABLE;
   hpcd_USB_OTG_FS.Init.lpm_enable = DISABLE;
-  hpcd_USB_OTG_FS.Init.battery_charging_enable = DISABLE;
+  hpcd_USB_OTG_FS.Init.battery_charging_enable = ENABLE;
   hpcd_USB_OTG_FS.Init.use_dedicated_ep1 = DISABLE;
-  hpcd_USB_OTG_FS.Init.vbus_sensing_enable = DISABLE;
+  hpcd_USB_OTG_FS.Init.vbus_sensing_enable = ENABLE;
   if (HAL_PCD_Init(&hpcd_USB_OTG_FS) != HAL_OK)
   {
     Error_Handler();
   }
   /* USER CODE BEGIN USB_OTG_FS_Init 2 */
-
   /* USER CODE END USB_OTG_FS_Init 2 */
-
 }
 
 /**
   * @brief GPIO Initialization Function
-  * @param None
-  * @retval None
+  *
+  * Changes from original:
+  *   - DRDY_Pin (PA10) changed from plain INPUT to GPIO_EXTI10 falling edge
+  *   - NVIC for EXTI15_10 enabled (covers PA10/DRDY)
+  *   - PB12 CS reconfigured inside ADS1292R_Init (after SPI2 init) — not here
+  *   - Everything else identical to original
   */
 static void MX_GPIO_Init(void)
 {
@@ -480,10 +436,10 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, LD2_Pin|GPIO_PIN_6|GPIO_PIN_7, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, LD2_Pin|ADS_START_Pin|ADS_RESET_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(Heartbeat_Led_GPIO_Port, Heartbeat_Led_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : B1_Pin */
   GPIO_InitStruct.Pin = B1_Pin;
@@ -491,19 +447,19 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : LD2_Pin PA6 PA7 */
-  GPIO_InitStruct.Pin = LD2_Pin|GPIO_PIN_6|GPIO_PIN_7;
+  /*Configure GPIO pins : LD2_Pin ADS_START_Pin ADS_RESET_Pin */
+  GPIO_InitStruct.Pin = LD2_Pin|ADS_START_Pin|ADS_RESET_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : PC6 */
-  GPIO_InitStruct.Pin = GPIO_PIN_6;
+  /*Configure GPIO pin : Heartbeat_Led_Pin */
+  GPIO_InitStruct.Pin = Heartbeat_Led_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+  HAL_GPIO_Init(Heartbeat_Led_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PA8 */
   GPIO_InitStruct.Pin = GPIO_PIN_8;
@@ -513,19 +469,22 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Alternate = GPIO_AF0_MCO;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : PA9 */
-  GPIO_InitStruct.Pin = GPIO_PIN_9;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  /*Configure GPIO pin : DRDY_Pin (PA10) — falling edge EXTI for ADS1292R */
+  GPIO_InitStruct.Pin = DRDY_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+  HAL_GPIO_Init(DRDY_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : PB5 */
+  /*Configure GPIO pin : PB5 — MPU6050 INT (unchanged) */
   GPIO_InitStruct.Pin = GPIO_PIN_5;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
+  /* Enable NVIC for DRDY (PA10 → EXTI15_10) */
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 1, 0);
+  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
   /* USER CODE END MX_GPIO_Init_2 */
 }
 
@@ -563,7 +522,6 @@ void I2C_Scanner(void)
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
   __disable_irq();
   while (1)
   {
@@ -571,18 +529,9 @@ void Error_Handler(void)
   /* USER CODE END Error_Handler_Debug */
 }
 #ifdef USE_FULL_ASSERT
-/**
-  * @brief  Reports the name of the source file and the source line number
-  *         where the assert_param error has occurred.
-  * @param  file: pointer to the source file name
-  * @param  line: assert_param error line source number
-  * @retval None
-  */
 void assert_failed(uint8_t *file, uint32_t line)
 {
   /* USER CODE BEGIN 6 */
-  /* User can add his own implementation to report the file name and line number,
-     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */

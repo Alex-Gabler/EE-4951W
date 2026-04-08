@@ -1,0 +1,308 @@
+/**
+ * @file    ads1292r.c
+ * @brief   ADS1292R ECG driver — STM32L4 HAL port.
+ *
+ *  CS is PB12 (SPI2_NSS pin), driven as a software GPIO output.
+ *  SPI2 is configured with NSS_SOFT so the HAL never touches PB12 automatically.
+ *  HAL_SPI_MspInit already configures PB12 as AF5; ADS1292R_Init reconfigures
+ *  it as a plain push-pull output after MX_SPI2_Init has run.
+ */
+
+#include "ads1292r.h"
+#include <stdio.h>
+#include <math.h>
+
+extern SPI_HandleTypeDef hspi2;
+
+/* ===================== CONSTANTS ===================== */
+#define VREF            2.42f
+#define GAIN            6.0f
+#define FS              500.0f
+#define DECIMATE        5           /* 500 / 5 = 100 SPS */
+#define FS_DEC          100.0f
+#define BPM_REFRACTORY  40
+
+/* ===================== BIQUAD ===================== */
+typedef struct {
+    float b0, b1, b2, a1, a2;
+    float x1, x2, y1, y2;
+} Biquad;
+
+/* ===================== MODULE STATE ===================== */
+static Biquad s_hp, s_n1, s_n2, s_lp;
+
+static volatile uint8_t s_ready = 0;
+static volatile uint8_t s_raw[3];
+
+static float   s_threshold  = 0.4f;
+static float   s_peak       = 0.0f;
+static float   s_baseline   = 0.0f;
+static uint8_t s_in_peak    = 0;
+static int32_t s_last_peak  = 0;
+static int32_t s_sample_cnt = 0;
+static float   s_bpm        = 0.0f;
+static float   s_rr_avg     = 0.0f;
+static uint8_t s_dec        = 0;
+
+/* ===================== SPI ===================== */
+static inline uint8_t spi_xfer(uint8_t tx)
+{
+    uint8_t rx = 0;
+    HAL_SPI_TransmitReceive(&hspi2, &tx, &rx, 1, HAL_MAX_DELAY);
+    return rx;
+}
+
+static void delay_us(uint32_t us)
+{
+    volatile uint32_t n = us * 8u;
+    while (n--) { __NOP(); }
+}
+
+/* ===================== CS HELPERS ===================== */
+static inline void cs_low(void)
+{
+    HAL_GPIO_WritePin(ADS_CS_GPIO_Port, ADS_CS_Pin, GPIO_PIN_RESET);
+}
+static inline void cs_high(void)
+{
+    HAL_GPIO_WritePin(ADS_CS_GPIO_Port, ADS_CS_Pin, GPIO_PIN_SET);
+}
+
+/* ===================== ADS1292R TRANSACTIONS ===================== */
+static void ads_cmd(uint8_t cmd)
+{
+    cs_low();  delay_us(5);
+    spi_xfer(cmd);
+    delay_us(5);  cs_high();
+    delay_us(20);
+}
+
+static uint8_t ads_rreg(uint8_t reg)
+{
+    cs_low();  delay_us(5);
+    spi_xfer(0x20 | reg);
+    spi_xfer(0x00);
+    uint8_t val = spi_xfer(0x00);
+    delay_us(5);  cs_high();
+    delay_us(20);
+    return val;
+}
+
+static void ads_wreg(uint8_t reg, uint8_t val)
+{
+    cs_low();  delay_us(5);
+    spi_xfer(0x40 | reg);
+    spi_xfer(0x00);
+    spi_xfer(val);
+    delay_us(5);  cs_high();
+    delay_us(20);
+}
+
+/* ===================== FILTERS ===================== */
+static void design_hp(Biquad *q, float fc)
+{
+    float w = tanf((float)M_PI * fc / FS), k = 1.0f / (1.0f + w);
+    q->b0 = k; q->b1 = -k; q->b2 = 0.0f;
+    q->a1 = k * (w - 1.0f); q->a2 = 0.0f;
+    q->x1 = q->x2 = q->y1 = q->y2 = 0.0f;
+}
+
+static void design_notch(Biquad *q, float f0, float r)
+{
+    float w0 = 2.0f * (float)M_PI * f0 / FS, c = cosf(w0);
+    q->b0 = 1.0f; q->b1 = -2.0f * c; q->b2 = 1.0f;
+    q->a1 = -2.0f * r * c; q->a2 = r * r;
+    q->x1 = q->x2 = q->y1 = q->y2 = 0.0f;
+}
+
+static void design_lp(Biquad *q, float fc)
+{
+    float w = tanf((float)M_PI * fc / FS), w2 = w * w;
+    float n = 1.0f / (1.0f + sqrtf(2.0f) * w + w2);
+    q->b0 = w2 * n; q->b1 = 2.0f * q->b0; q->b2 = q->b0;
+    q->a1 = 2.0f * (w2 - 1.0f) * n;
+    q->a2 = (1.0f - sqrtf(2.0f) * w + w2) * n;
+    q->x1 = q->x2 = q->y1 = q->y2 = 0.0f;
+}
+
+static float biquad(Biquad *q, float x0)
+{
+    float y0 = q->b0*x0 + q->b1*q->x1 + q->b2*q->x2
+                        - q->a1*q->y1  - q->a2*q->y2;
+    q->x2 = q->x1; q->x1 = x0;
+    q->y2 = q->y1; q->y1 = y0;
+    return y0;
+}
+
+/* ===================== CONVERSION ===================== */
+static int32_t to_s24(uint8_t b0, uint8_t b1, uint8_t b2)
+{
+    int32_t v = ((int32_t)b0 << 16) | ((int32_t)b1 << 8) | b2;
+    if (v & 0x800000L) v |= (int32_t)0xFF000000L;
+    return v;
+}
+
+static float to_mv(int32_t code)
+{
+    return (float)code * (2.0f * VREF) / (GAIN * 16777216.0f) * 1000.0f;
+}
+
+/* ===================== BPM ===================== */
+static uint8_t detect_bpm(float mv)
+{
+    s_sample_cnt++;
+    s_baseline = 0.999f * s_baseline + 0.001f * mv;
+    float c = mv - s_baseline;
+
+    if (!s_in_peak && c > s_threshold) { s_in_peak = 1; s_peak = c; }
+
+    if (s_in_peak) {
+        if (c > s_peak) s_peak = c;
+        if (c < s_threshold * 0.5f) {
+            s_in_peak = 0;
+            int32_t rr = s_sample_cnt - s_last_peak;
+            if (rr > BPM_REFRACTORY) {
+                s_last_peak = s_sample_cnt;
+                s_rr_avg = (s_rr_avg == 0.0f) ? (float)rr
+                                               : 0.75f * s_rr_avg + 0.25f * (float)rr;
+                s_bpm = (FS_DEC * 60.0f) / s_rr_avg;
+                s_threshold = 0.5f * s_peak;
+                if (s_threshold < 0.05f) s_threshold = 0.05f;
+                if (s_threshold > 2.0f)  s_threshold = 2.0f;
+                return 1;
+            }
+            s_peak = 0.0f;
+        }
+    }
+    return 0;
+}
+
+/* ===================== REGISTER VERIFY ===================== */
+static void verify_registers(void)
+{
+    static const struct { uint8_t reg; const char *name; uint8_t exp; } chk[] = {
+        {0x01,"CONFIG1 ",0x02},{0x02,"CONFIG2 ",0xA0},{0x03,"LOFF    ",0x10},
+        {0x04,"CH1SET  ",0x00},{0x05,"CH2SET  ",0x81},{0x06,"RLD_SENS",0x23},
+        {0x07,"LOFF_SN ",0x00},{0x09,"RESP1   ",0x02},{0x0A,"RESP2   ",0x07},
+    };
+    printf("=== ADS1292R REGISTER VERIFY ===\r\n");
+    uint8_t ok = 1;
+    for (uint8_t i = 0; i < sizeof(chk)/sizeof(chk[0]); i++) {
+        uint8_t got = ads_rreg(chk[i].reg);
+        uint8_t pass = (got == chk[i].exp);
+        if (!pass) ok = 0;
+        printf("%s exp 0x%02X got 0x%02X %s\r\n",
+               chk[i].name, chk[i].exp, got, pass ? "PASS" : "FAIL");
+    }
+    printf("%s\r\n================================\r\n\r\n",
+           ok ? "ALL PASS" : "MISMATCH — check wiring/SPI mode");
+}
+
+/* ===================== DRDY ISR =====================
+ *
+ *  PA10 (DRDY) → EXTI line 10 → EXTI15_10_IRQHandler.
+ *  PB5  (MPU6050 INT) → EXTI line 5 → different vector, no conflict.
+ */
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+    if (GPIO_Pin != DRDY_Pin)
+        return;
+
+    cs_low();
+
+    spi_xfer(0x00); spi_xfer(0x00); spi_xfer(0x00);   /* 3 status bytes */
+
+    s_raw[0] = spi_xfer(0x00);   /* CH1 MSB */
+    s_raw[1] = spi_xfer(0x00);   /* CH1     */
+    s_raw[2] = spi_xfer(0x00);   /* CH1 LSB */
+
+    spi_xfer(0x00); spi_xfer(0x00); spi_xfer(0x00);   /* CH2 powered down */
+
+    cs_high();
+    s_ready = 1;
+}
+
+/* ===================== PUBLIC: INIT ===================== */
+void ADS1292R_Init(void)
+{
+    /* Reconfigure PB12 as a plain push-pull output for manual CS control.
+     * HAL_SPI_MspInit set it as AF5; overriding it here is safe because
+     * MX_SPI2_Init uses SPI_NSS_SOFT so the SPI peripheral never drives it. */
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+    __HAL_RCC_GPIOB_CLK_ENABLE();
+    GPIO_InitStruct.Pin   = ADS_CS_Pin;
+    GPIO_InitStruct.Mode  = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull  = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(ADS_CS_GPIO_Port, &GPIO_InitStruct);
+
+    /* Idle levels */
+    cs_high();
+    HAL_GPIO_WritePin(ADS_START_GPIO_Port, ADS_START_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(ADS_RESET_GPIO_Port, ADS_RESET_Pin, GPIO_PIN_SET);
+
+    /* Hardware reset pulse (RESET is active-low) */
+    HAL_GPIO_WritePin(ADS_RESET_GPIO_Port, ADS_RESET_Pin, GPIO_PIN_RESET);
+    HAL_Delay(10);
+    HAL_GPIO_WritePin(ADS_RESET_GPIO_Port, ADS_RESET_Pin, GPIO_PIN_SET);
+    HAL_Delay(100);
+
+    ads_cmd(ADS_CMD_RESET);  HAL_Delay(20);
+    ads_cmd(ADS_CMD_SDATAC); HAL_Delay(10);
+
+    uint8_t id = ads_rreg(0x00);
+    printf("=== ADS1292R CHIP ID ===\r\n");
+    printf("ID = 0x%02X  %s\r\n\r\n", id,
+           (id == 0x53 || id == 0x73) ? "PASS" : "FAIL: unexpected ID");
+
+    ads_wreg(0x01, 0x02); HAL_Delay(5);    /* CONFIG1: 500 SPS              */
+    ads_wreg(0x02, 0xA0); HAL_Delay(150);  /* CONFIG2: int ref on           */
+    ads_wreg(0x03, 0x10); HAL_Delay(5);    /* LOFF: off                     */
+    ads_wreg(0x04, 0x00); HAL_Delay(5);    /* CH1SET: gain 6x, electrode    */
+    ads_wreg(0x05, 0x81); HAL_Delay(5);    /* CH2SET: powered down          */
+    ads_wreg(0x06, 0x23); HAL_Delay(5);    /* RLD_SENS: IN1P+IN1N to RLD    */
+    ads_wreg(0x07, 0x00); HAL_Delay(5);    /* LOFF_SENS: off                */
+    ads_wreg(0x09, 0x02); HAL_Delay(5);    /* RESP1: off                    */
+    ads_wreg(0x0A, 0x07); HAL_Delay(5);    /* RESP2: ADS1292R correction    */
+
+    verify_registers();
+
+    design_hp   (&s_hp, 0.67f);
+    design_notch(&s_n1, 60.0f, 0.88f);
+    design_notch(&s_n2, 60.0f, 0.96f);
+    design_lp   (&s_lp, 40.0f);
+
+    HAL_GPIO_WritePin(ADS_START_GPIO_Port, ADS_START_Pin, GPIO_PIN_SET);
+    HAL_Delay(10);
+    ads_cmd(ADS_CMD_START);  HAL_Delay(10);
+    ads_cmd(ADS_CMD_RDATAC); HAL_Delay(10);
+
+    printf("ADS1292R ready\r\n");
+}
+
+/* ===================== PUBLIC: PROCESS ===================== */
+void ADS1292R_Process(void)
+{
+    if (!s_ready) return;
+
+    __disable_irq();
+    uint8_t b0 = s_raw[0], b1 = s_raw[1], b2 = s_raw[2];
+    s_ready = 0;
+    __enable_irq();
+
+    float mv = to_mv(to_s24(b0, b1, b2));
+    mv = biquad(&s_hp, mv);
+    mv = biquad(&s_n1, mv);
+    mv = biquad(&s_n2, mv);
+    mv = biquad(&s_lp, mv);
+
+    if (++s_dec < DECIMATE) return;
+    s_dec = 0;
+
+    printf("ECG:%.4f\r\n", mv);
+
+    if (detect_bpm(mv)) {
+        printf("# BPM = %.1f\r\n", s_bpm);
+        HAL_GPIO_TogglePin(Heartbeat_Led_GPIO_Port, Heartbeat_Led_Pin);
+    }
+}

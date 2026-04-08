@@ -1,0 +1,139 @@
+#include "usbd_cdc_if.h"
+#include <math.h>
+#include <string.h>
+#include <stdio.h>
+#include <stdbool.h>
+#include <stdint.h>
+
+// ===================== BIQUAD FILTER =====================
+typedef struct {
+    float b0, b1, b2;
+    float a1, a2;
+    float x1, x2;
+    float y1, y2;
+} Biquad;
+
+Biquad bqHP, bqN1, bqN2, bqLP;
+
+// ===================== ECG & BPM STATE =====================
+volatile bool sampleReady = false;
+volatile uint8_t raw[3];
+
+float bpm_threshold    = 0.4f;
+float bpm_peak         = 0.0f;
+float bpm_baseline     = 0.0f;
+bool  bpm_inPeak       = false;
+int32_t bpm_lastPeakSample = 0;
+int32_t bpm_sampleCount  = 0;
+float bpm_value        = 0.0f;
+float bpm_rr_avg       = 0.0f;
+const int32_t BPM_REFRACTORY = 40;
+
+// ===================== CONSTANTS =====================
+const float VREF = 2.42f;
+const float GAIN = 6.0f;
+const float FS   = 500.0f;
+
+// ===================== USB CDC SEND =====================
+void sendToHTML(const char* msg)
+{
+    CDC_Transmit_FS((uint8_t*)msg, strlen(msg));
+}
+
+// ===================== UTILS =====================
+long to24Signed(uint8_t b1, uint8_t b2, uint8_t b3)
+{
+    long v = ((long)b1 << 16) | ((long)b2 << 8) | b3;
+    if (v & 0x800000L) v |= 0xFF000000L;
+    return v;
+}
+
+float toMillivolts(long code)
+{
+    return (float)code * (2.0f * VREF) / (GAIN * 16777216.0f) * 1000.0f;
+}
+
+float applyBiquad(Biquad* bq, float x0)
+{
+    float y0 = bq->b0 * x0
+             + bq->b1 * bq->x1
+             + bq->b2 * bq->x2
+             - bq->a1 * bq->y1
+             - bq->a2 * bq->y2;
+    bq->x2 = bq->x1;  bq->x1 = x0;
+    bq->y2 = bq->y1;  bq->y1 = y0;
+    return y0;
+}
+
+// ===================== BPM DETECTOR =====================
+bool detectBPM(float mV)
+{
+    bpm_sampleCount++;
+    bpm_baseline = 0.999f * bpm_baseline + 0.001f * mV;
+    float centered = mV - bpm_baseline;
+
+    if (!bpm_inPeak && centered > bpm_threshold) {
+        bpm_inPeak = true;
+        bpm_peak   = centered;
+    }
+
+    if (bpm_inPeak) {
+        if (centered > bpm_peak) bpm_peak = centered;
+
+        if (centered < bpm_threshold * 0.5f) {
+            bpm_inPeak = false;
+            int32_t rr = bpm_sampleCount - bpm_lastPeakSample;
+            if (rr > BPM_REFRACTORY) {
+                bpm_lastPeakSample = bpm_sampleCount;
+                if (bpm_rr_avg == 0.0f) bpm_rr_avg = (float)rr;
+                else bpm_rr_avg = 0.75f * bpm_rr_avg + 0.25f * (float)rr;
+
+                bpm_value = 6000.0f / bpm_rr_avg;
+
+                bpm_threshold = 0.5f * bpm_peak;
+                if (bpm_threshold < 0.05f) bpm_threshold = 0.05f;
+                if (bpm_threshold > 2.0f)  bpm_threshold = 2.0f;
+
+                bpm_peak = 0.0f;
+                return true;
+            }
+            bpm_peak = 0.0f;
+        }
+    }
+    return false;
+}
+
+// ===================== MAIN LOOP =====================
+void processECG()
+{
+    if (!sampleReady) return;
+
+    uint8_t b1 = raw[0];
+    uint8_t b2 = raw[1];
+    uint8_t b3 = raw[2];
+    sampleReady = false;
+
+    long code = to24Signed(b1, b2, b3);
+    float mV = toMillivolts(code);
+
+    // Filter chain
+    mV = applyBiquad(&bqHP, mV);
+    mV = applyBiquad(&bqN1, mV);
+    mV = applyBiquad(&bqN2, mV);
+    mV = applyBiquad(&bqLP, mV);
+
+    // Decimate 500 SPS → 100 SPS
+    static uint8_t decimator = 0;
+    if (++decimator >= 5) {
+        decimator = 0;
+
+        char buffer[64];
+        snprintf(buffer, sizeof(buffer), "ECG: %.3f\n", mV);
+        sendToHTML(buffer);
+
+        if (detectBPM(mV)) {
+            snprintf(buffer, sizeof(buffer), "BPM: %.1f\n", bpm_value);
+            sendToHTML(buffer);
+        }
+    }
+}

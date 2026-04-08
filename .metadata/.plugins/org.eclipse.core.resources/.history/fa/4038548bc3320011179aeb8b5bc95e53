@@ -1,0 +1,85 @@
+// -------------------- Core/Src/ads1292r.c --------------------
+#include "main.h"
+#include <stdio.h>
+#include <math.h>
+#include <stdbool.h>      // for bool, true, false
+#include <string.h>
+
+extern SPI_HandleTypeDef hspi1;    // SPI to ADS1292R
+extern UART_HandleTypeDef huart2;  // USART2 to PC/HTML
+
+// -------------------- ECG sample --------------------
+volatile uint8_t raw[3];
+volatile bool sampleReady = false;
+
+// -------------------- BPM detection --------------------
+bool bpm_inPeak = false;
+float bpm_threshold = 0.4f;  // mV threshold
+int32_t bpm_lastPeakSample = 0;
+int32_t bpm_sampleCount = 0;
+
+// -------------------- Utility: convert 3 bytes to mV --------------------
+float rawToMillivolt(uint8_t r0, uint8_t r1, uint8_t r2)
+{
+    int32_t val = ((int32_t)r0 << 16) | ((int32_t)r1 << 8) | r2;
+    if(val & 0x800000)  // negative number
+        val |= 0xFF000000;
+    float mV = (float)val * (4.5f / 24.0f) / 8388607.0f * 1000.0f; // example gain=24
+    return mV;
+}
+
+// -------------------- EXTI callback for DRDY --------------------
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+    if(GPIO_Pin == GPIO_PIN_X)  // replace X with your DRDY pin
+    {
+        // read 3 bytes from ADS1292R
+        HAL_SPI_TransmitReceive(&hspi1, (uint8_t[]){0x00}, (uint8_t*)&raw[0], 1, HAL_MAX_DELAY);
+        HAL_SPI_TransmitReceive(&hspi1, (uint8_t[]){0x00}, (uint8_t*)&raw[1], 1, HAL_MAX_DELAY);
+        HAL_SPI_TransmitReceive(&hspi1, (uint8_t[]){0x00}, (uint8_t*)&raw[2], 1, HAL_MAX_DELAY);
+
+        sampleReady = true;
+    }
+}
+
+// -------------------- BPM detection --------------------
+bool detectBPM(float mV)
+{
+    if(mV > bpm_threshold && !bpm_inPeak)
+    {
+        bpm_inPeak = true;
+        bpm_lastPeakSample = bpm_sampleCount;
+        return true;
+    }
+    else if(mV < bpm_threshold && bpm_inPeak)
+    {
+        bpm_inPeak = false;
+    }
+    bpm_sampleCount++;
+    return false;
+}
+
+// -------------------- Main processing function --------------------
+void processECG(void)
+{
+    if(sampleReady)
+    {
+        sampleReady = false;
+
+        // convert raw to mV
+        float mV = rawToMillivolt(raw[0], raw[1], raw[2]);
+
+        // send ECG value over USART2
+        char buffer[50];
+        snprintf(buffer, sizeof(buffer), "%.2f\r\n", mV);
+        HAL_UART_Transmit(&huart2, (uint8_t*)buffer, strlen(buffer), HAL_MAX_DELAY);
+
+        // check for BPM peak
+        if(detectBPM(mV))
+        {
+            int bpm = 60 * 1000 / (bpm_sampleCount - bpm_lastPeakSample); // simplified, assume 1ms/sample
+            snprintf(buffer, sizeof(buffer), "# BPM = %d\r\n", bpm);
+            HAL_UART_Transmit(&huart2, (uint8_t*)buffer, strlen(buffer), HAL_MAX_DELAY);
+        }
+    }
+}
