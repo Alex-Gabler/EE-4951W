@@ -1,0 +1,19 @@
+# Build output
+Debug/
+Release/
+*.elf
+*.bin
+*.hex
+*.map
+*.list
+*.d
+*.o
+
+# IDE machine-specific
+.project
+.cproject
+.settings/
+*.launch
+
+# CubeMX backup files
+*.bak
