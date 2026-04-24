@@ -75,7 +75,17 @@ extern "C" {
  *         Call once after MX_SPI2_Init() and MX_GPIO_Init().
  */
 void ADS1292R_Init(void);
+typedef struct {
+    float   sdnn;
+    float   rmssd;
+    float   pnn50;
+    float   rr_ms;
+    uint8_t beats;
+    uint8_t valid;
+} HRV_Results;
 
+void ADS1292R_Process(float resp_mm, float resp_max, float resp_min);
+HRV_Results ADS1292R_GetHRV(void);
 /**
  * @brief  Poll for a new sample and, when one is ready, stream it over UART.
  *         Call repeatedly from the main while(1) loop.

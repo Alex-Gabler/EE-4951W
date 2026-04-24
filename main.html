@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>VITAL · SCOPE</title>
+<title>HRV · RESPIRATORY MONITOR</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap');
 
@@ -38,7 +38,6 @@
     overflow: hidden;
   }
 
-  /* ---- HEADER ---- */
   header {
     display: flex;
     align-items: center;
@@ -46,7 +45,6 @@
     padding: 0 18px;
     background: var(--panel);
     border-bottom: 1px solid var(--border);
-    position: relative;
   }
 
   .logo {
@@ -56,15 +54,9 @@
     letter-spacing: 4px;
     color: var(--ecg);
   }
-
   .logo span { color: var(--resp); }
 
-  .hdr-chips {
-    display: flex;
-    gap: 10px;
-    margin-left: 10px;
-  }
-
+  .hdr-chips { display: flex; gap: 10px; margin-left: 10px; }
   .chip {
     font-size: 10px;
     letter-spacing: 1.5px;
@@ -72,9 +64,12 @@
     border: 1px solid var(--border2);
     color: var(--dim);
   }
-
   .chip.active { border-color: var(--ecg); color: var(--ecg); }
   .chip.active.resp { border-color: var(--resp); color: var(--resp); }
+  .chip.live-chip { border-color: var(--green); color: var(--green); cursor: pointer; transition: background 0.15s; }
+  .chip.live-chip:hover { background: rgba(34,211,165,0.08); }
+  .chip.paused-chip { border-color: var(--amber); color: var(--amber); cursor: pointer; transition: background 0.15s; }
+  .chip.paused-chip:hover { background: rgba(251,191,36,0.08); }
 
   .hdr-right {
     margin-left: auto;
@@ -84,12 +79,7 @@
     font-size: 11px;
   }
 
-  .status-pair {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
+  .status-pair { display: flex; align-items: center; gap: 6px; }
   .dot {
     width: 7px; height: 7px;
     border-radius: 50%;
@@ -99,10 +89,8 @@
     transition: background 0.3s, box-shadow 0.3s;
   }
   .dot.live { background: var(--green); box-shadow: 0 0 8px var(--green); }
-
   #statusText { color: var(--dim); letter-spacing: 1px; }
 
-  /* ---- LAYOUT ---- */
   .layout {
     display: grid;
     grid-template-columns: 1fr 288px;
@@ -110,14 +98,17 @@
     overflow: hidden;
   }
 
-  /* ---- SCOPES SIDE ---- */
   .scopes-side {
     display: grid;
-    grid-template-rows: 1fr 8px 1fr 52px;
+    grid-template-rows: 1fr 20px 6px 1fr 110px;
     padding: 12px 12px 12px 14px;
     gap: 0;
     min-height: 0;
     min-width: 0;
+    transition: grid-template-rows 0.25s ease;
+  }
+  .scopes-side.bpm-collapsed {
+    grid-template-rows: 1fr 20px 6px 1fr 22px;
   }
 
   .scope-wrap {
@@ -130,7 +121,9 @@
     width: 100%;
     height: 100%;
     display: block;
+    cursor: grab;
   }
+  .scope-canvas.dragging { cursor: grabbing; }
 
   .scope-label {
     position: absolute;
@@ -140,24 +133,96 @@
     font-weight: 600;
     font-size: 11px;
     letter-spacing: 3px;
+    pointer-events: none;
   }
   .scope-label.ecg-label  { color: var(--ecg); }
   .scope-label.resp-label { color: var(--resp); }
 
-  /* divider */
+  /* Scrollbar track under ECG scope */
+  .scope-scrollbar {
+    position: relative;
+    height: 20px;
+    margin: 0;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    border-top: none;
+  }
+  .scroll-track {
+    position: absolute;
+    left: 52px;
+    right: 14px;
+    height: 6px;
+    background: var(--dim2);
+    border-radius: 3px;
+  }
+  .scroll-thumb {
+    position: absolute;
+    height: 100%;
+    background: var(--ecg);
+    opacity: 0.6;
+    border-radius: 3px;
+    transition: opacity 0.15s;
+    cursor: grab;
+    min-width: 20px;
+  }
+  .scroll-thumb:hover, .scroll-thumb.dragging { opacity: 1; cursor: grabbing; }
+  .scroll-thumb.resp-thumb { background: var(--resp); }
+
   .scope-divider {
     display: flex;
     align-items: center;
-    padding: 0 54px;
+    padding: 0 14px;
+    height: 6px;
   }
   .divider-line { flex: 1; height: 1px; background: var(--border2); }
-  .divider-dot  { width: 5px; height: 5px; border-radius: 50%; background: var(--border2); margin: 0 8px; }
+  .divider-dot  { width: 4px; height: 4px; border-radius: 50%; background: var(--border2); margin: 0 6px; flex-shrink: 0; }
 
-  /* BPM history strip */
-  .bpm-strip { position: relative; overflow: hidden; margin-top: 4px; }
+  .bpm-strip {
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .bpm-strip-hdr {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 8px 3px 46px;
+    cursor: pointer;
+    user-select: none;
+    flex-shrink: 0;
+    height: 22px;
+    background: var(--panel2);
+    border: 1px solid var(--border);
+  }
+  .bpm-strip-hdr:hover { background: var(--panel3); }
+  .bpm-strip-title {
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 600;
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--dim);
+    text-transform: uppercase;
+  }
+  .bpm-strip-arrow {
+    margin-left: auto;
+    font-size: 9px;
+    color: var(--dim);
+    transition: transform 0.22s ease;
+    display: inline-block;
+  }
+  .bpm-strip-body {
+    flex: 1;
+    overflow: hidden;
+    min-height: 0;
+  }
+  .bpm-strip-body.hidden { display: none; }
   #bpmCanvas { width: 100%; height: 100%; display: block; }
 
-  /* ---- RIGHT PANEL ---- */
+  /* RIGHT PANEL */
   .panel {
     background: var(--panel);
     border-left: 1px solid var(--border);
@@ -168,12 +233,10 @@
     scrollbar-width: thin;
     scrollbar-color: var(--border2) transparent;
   }
-
   .panel::-webkit-scrollbar { width: 4px; }
   .panel::-webkit-scrollbar-track { background: transparent; }
   .panel::-webkit-scrollbar-thumb { background: var(--border2); }
 
-  /* section header */
   .section-hdr {
     display: flex;
     align-items: center;
@@ -181,13 +244,11 @@
     padding: 10px 14px 8px;
     border-bottom: 1px solid var(--border);
   }
-  .section-hdr-line {
-    width: 3px; height: 14px;
-    flex-shrink: 0;
-  }
-  .ecg-line { background: var(--ecg); }
-  .resp-line { background: var(--resp); }
+  .section-hdr-line { width: 3px; height: 14px; flex-shrink: 0; }
+  .ecg-line     { background: var(--ecg); }
+  .resp-line    { background: var(--resp); }
   .neutral-line { background: var(--border2); }
+  .amber-line   { background: var(--amber); }
 
   .section-hdr-title {
     font-family: 'Rajdhani', sans-serif;
@@ -198,7 +259,6 @@
     text-transform: uppercase;
   }
 
-  /* big BPM */
   .bpm-display {
     padding: 10px 14px 12px;
     border-bottom: 1px solid var(--border);
@@ -206,7 +266,6 @@
     grid-template-columns: 1fr 1fr;
     gap: 8px;
   }
-
   .big-num-block { text-align: center; }
   .big-num {
     font-family: 'Rajdhani', sans-serif;
@@ -217,19 +276,12 @@
   }
   .big-num.ecg-num  { color: var(--ecg); }
   .big-num.resp-num { color: var(--resp); }
-  .big-unit {
-    font-size: 10px;
-    letter-spacing: 2px;
-    color: var(--dim);
-    margin-top: 2px;
-  }
+  .big-unit { font-size: 10px; letter-spacing: 2px; color: var(--dim); margin-top: 2px; }
 
-  /* metrics */
   .metrics-block {
     padding: 8px 14px;
     border-bottom: 1px solid var(--border);
   }
-
   .metric-row {
     display: flex;
     justify-content: space-between;
@@ -241,7 +293,6 @@
   .metric-lbl { font-size: 10px; color: var(--dim); letter-spacing: 0.5px; }
   .metric-val { font-size: 15px; font-weight: 600; font-family: 'Rajdhani', sans-serif; }
 
-  /* serial card */
   .serial-block {
     padding: 10px 14px;
     border-bottom: 1px solid var(--border);
@@ -263,19 +314,19 @@
   button:last-child { margin-bottom: 0; }
   button:hover:not(:disabled) { background: rgba(0,229,255,0.06); }
   button:disabled { opacity: 0.35; cursor: default; }
-  .btn-warn { border-color: var(--warn); color: var(--warn); }
-  .btn-warn:hover:not(:disabled) { background: rgba(244,63,94,0.06); }
-  .btn-purple { border-color: var(--resp); color: var(--resp); }
+  .btn-warn   { border-color: var(--warn);  color: var(--warn); }
+  .btn-warn:hover:not(:disabled)   { background: rgba(244,63,94,0.06); }
+  .btn-purple { border-color: var(--resp);  color: var(--resp); }
   .btn-purple:hover:not(:disabled) { background: rgba(167,139,250,0.06); }
-  .btn-green { border-color: var(--green); color: var(--green); }
-  .btn-green:hover:not(:disabled) { background: rgba(34,211,165,0.06); }
+  .btn-green  { border-color: var(--green); color: var(--green); }
+  .btn-green:hover:not(:disabled)  { background: rgba(34,211,165,0.06); }
+  .btn-amber  { border-color: var(--amber); color: var(--amber); }
+  .btn-amber:hover:not(:disabled)  { background: rgba(251,191,36,0.06); }
 
-  /* sliders */
   .ctrl-block {
     padding: 10px 14px;
     border-bottom: 1px solid var(--border);
   }
-
   .sl-row {
     display: flex;
     align-items: center;
@@ -287,21 +338,47 @@
   .sl-row:last-child { margin-bottom: 0; }
   .sl-lbl { min-width: 64px; }
   .sl-row input[type=range] {
-    flex: 1;
-    accent-color: var(--ecg);
-    height: 2px;
-    border: none;
-    padding: 0;
-    background: transparent;
+    flex: 1; accent-color: var(--ecg);
+    height: 2px; border: none; padding: 0; background: transparent;
   }
   .sl-row.resp-sl input[type=range] { accent-color: var(--resp); }
   .sl-val { min-width: 36px; text-align: right; color: var(--text); font-size: 11px; }
 
-  /* log */
-  .log-block {
+  /* Export block */
+  .export-block {
     padding: 10px 14px;
-    flex: 1;
+    border-bottom: 1px solid var(--border);
   }
+  .export-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    margin-bottom: 6px;
+    font-size: 10px;
+    color: var(--dim);
+  }
+  .export-row:last-child { margin-bottom: 0; }
+  .export-row label { min-width: 36px; }
+  .export-row input[type=number] {
+    flex: 1;
+    background: var(--panel3);
+    border: 1px solid var(--border2);
+    color: var(--text);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    padding: 4px 6px;
+    outline: none;
+    width: 100%;
+  }
+  .export-row input[type=number]:focus { border-color: var(--amber); }
+  .export-info {
+    font-size: 9px;
+    color: var(--dim2);
+    margin-bottom: 6px;
+    line-height: 1.6;
+  }
+
+  .log-block { padding: 10px 14px; flex: 1; }
   .log {
     max-height: 120px;
     overflow-y: auto;
@@ -315,8 +392,8 @@
   .log-line.ecg-log  { color: rgba(0,229,255,0.5); }
   .log-line.resp-log { color: rgba(167,139,250,0.5); }
   .log-line.warn-log { color: rgba(244,63,94,0.6); }
+  .log-line.amber-log { color: rgba(251,191,36,0.6); }
 
-  /* firmware hint */
   .fw-hint {
     padding: 10px 14px;
     border-top: 1px solid var(--border);
@@ -324,20 +401,119 @@
     color: var(--dim2);
     line-height: 1.7;
   }
-  .fw-hint code {
-    color: var(--amber);
-    font-family: 'Share Tech Mono', monospace;
+  .fw-hint code { color: var(--amber); font-family: 'Share Tech Mono', monospace; }
+
+  /* Collapsible */
+  .section-hdr.collapsible { cursor: pointer; user-select: none; }
+  .section-hdr.collapsible:hover { background: rgba(255,255,255,0.02); }
+  .collapse-arrow {
+    margin-left: auto;
+    font-size: 9px;
+    color: var(--dim);
+    transition: transform 0.22s ease;
+    display: inline-block;
   }
+  .collapsible-body { display: none; }
+  .collapsible-body.open { display: contents; }
+
+  /* RSA Box */
+  .rsa-block {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .rsa-phase {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 8px 0 10px;
+  }
+  .rsa-phase-badge {
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 700;
+    font-size: 18px;
+    letter-spacing: 2px;
+    padding: 4px 14px;
+    border: 1px solid var(--border2);
+    color: var(--dim);
+    transition: color 0.2s, border-color 0.2s, background 0.2s;
+  }
+  .rsa-phase-badge.insp {
+    color: var(--ecg);
+    border-color: var(--ecg);
+    background: rgba(0,229,255,0.06);
+  }
+  .rsa-phase-badge.exp {
+    color: var(--resp);
+    border-color: var(--resp);
+    background: rgba(167,139,250,0.06);
+  }
+  .rsa-phase-dur {
+    font-size: 10px;
+    color: var(--dim);
+    min-width: 36px;
+  }
+  .rsa-metrics {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+  .rsa-metric-box {
+    background: var(--panel3);
+    border: 1px solid var(--border);
+    padding: 6px 8px;
+    text-align: center;
+  }
+  .rsa-metric-lbl {
+    font-size: 9px;
+    color: var(--dim);
+    letter-spacing: 1px;
+    margin-bottom: 3px;
+  }
+  .rsa-metric-num {
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 700;
+    font-size: 20px;
+    color: var(--text);
+  }
+  .rsa-amplitude-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 6px 0;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 10px;
+  }
+  .rsa-amplitude-lbl { font-size: 10px; color: var(--dim); }
+  .rsa-amplitude-val {
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 700;
+    font-size: 26px;
+    transition: color 0.3s;
+  }
+  .rsa-cycles {
+    font-size: 9px;
+    color: var(--dim);
+    text-align: center;
+    margin-bottom: 8px;
+  }
+  .btn-rsa-start { border-color: var(--green); color: var(--green); }
+  .btn-rsa-start:hover:not(:disabled) { background: rgba(34,211,165,0.06); }
+  .btn-rsa-stop { border-color: var(--warn); color: var(--warn); }
+  .btn-rsa-stop:hover:not(:disabled) { background: rgba(244,63,94,0.06); }
 </style>
 </head>
 <body>
 
 <header>
-  <div class="logo">VITAL<span>·</span>SCOPE</div>
+  <div class="logo">HRV<span>·</span>RESPIRATORY MONITOR</div>
   <div class="hdr-chips">
     <div class="chip active" id="ecgChip">ECG</div>
     <div class="chip active resp" id="respChip">RESP</div>
     <div class="chip" id="rateChip">--- SPS</div>
+    <div class="chip live-chip" id="liveChip" onclick="toggleLiveFollow()">⬤ LIVE</div>
   </div>
   <div class="hdr-right">
     <div class="status-pair">
@@ -349,12 +525,18 @@
 
 <div class="layout">
 
-  <!-- ======= SCOPES ======= -->
   <div class="scopes-side">
 
     <div class="scope-wrap">
       <canvas class="scope-canvas" id="ecgScope"></canvas>
-      <div class="scope-label ecg-label">ELECTROCARDIOGRAM · CH1</div>
+      <div class="scope-label ecg-label">ELECTROCARDIOGRAM</div>
+    </div>
+
+    <!-- ECG scrollbar -->
+    <div class="scope-scrollbar" id="ecgScrollbar">
+      <div class="scroll-track">
+        <div class="scroll-thumb" id="ecgThumb"></div>
+      </div>
     </div>
 
     <div class="scope-divider">
@@ -365,16 +547,21 @@
 
     <div class="scope-wrap">
       <canvas class="scope-canvas" id="respScope"></canvas>
-      <div class="scope-label resp-label">RESPIRATION · MPU6050</div>
+      <div class="scope-label resp-label">RESPIRATION</div>
     </div>
 
     <div class="bpm-strip">
-      <canvas id="bpmCanvas"></canvas>
+      <div class="bpm-strip-hdr" onclick="toggleBPMStrip()">
+        <div class="bpm-strip-title">BPM · Over Time</div>
+        <div class="bpm-strip-arrow" id="bpmStripArrow">▲</div>
+      </div>
+      <div class="bpm-strip-body" id="bpmStripBody">
+        <canvas id="bpmCanvas"></canvas>
+      </div>
     </div>
 
   </div>
 
-  <!-- ======= PANEL ======= -->
   <div class="panel">
 
     <!-- ECG vitals -->
@@ -433,6 +620,53 @@
       </div>
     </div>
 
+    <!-- RSA Analysis -->
+    <div class="section-hdr">
+      <div class="section-hdr-line" style="background:linear-gradient(to bottom,var(--ecg),var(--resp))"></div>
+      <div class="section-hdr-title">RSA Analysis</div>
+    </div>
+    <div class="rsa-block">
+
+      <!-- Phase indicator -->
+      <div class="rsa-phase">
+        <div class="rsa-phase-badge" id="rsaPhaseBadge">WAITING</div>
+        <div class="rsa-phase-dur" id="rsaPhaseDur"></div>
+      </div>
+
+      <!-- Insp / Exp HR -->
+      <div class="rsa-metrics">
+        <div class="rsa-metric-box">
+          <div class="rsa-metric-lbl">INSP · HR</div>
+          <div class="rsa-metric-num" id="rsaInspHR" style="color:var(--ecg)">---</div>
+        </div>
+        <div class="rsa-metric-box">
+          <div class="rsa-metric-lbl">EXP · HR</div>
+          <div class="rsa-metric-num" id="rsaExpHR" style="color:var(--resp)">---</div>
+        </div>
+      </div>
+
+      <!-- RSA Amplitude -->
+      <div class="rsa-amplitude-row">
+        <div class="rsa-amplitude-lbl">RSA AMPLITUDE</div>
+        <div class="rsa-amplitude-val" id="rsaAmplitude" style="color:var(--dim)">--- ms</div>
+      </div>
+
+      <!-- Cycle count -->
+      <div class="rsa-cycles" id="rsaCycles">Press START to begin measurement</div>
+
+      <!-- Button -->
+      <button class="btn-rsa-start" id="rsaBtn" onclick="toggleRSA()">START RSA MEASUREMENT</button>
+    </div>
+
+    <!-- Controls toggle header -->
+    <div class="section-hdr collapsible" onclick="toggleControls()" id="controlsHdr">
+      <div class="section-hdr-line neutral-line"></div>
+      <div class="section-hdr-title">Controls &amp; Settings</div>
+      <div class="collapse-arrow" id="controlsArrow">▲</div>
+    </div>
+
+    <div class="collapsible-body open" id="controlsBody">
+
     <!-- Serial -->
     <div class="section-hdr">
       <div class="section-hdr-line neutral-line"></div>
@@ -444,7 +678,26 @@
       <button onclick="clearAll()">CLEAR WAVEFORMS</button>
     </div>
 
-    <!-- ECG Display controls -->
+    <!-- Export -->
+    <div class="section-hdr">
+      <div class="section-hdr-line amber-line"></div>
+      <div class="section-hdr-title">Export CSV</div>
+    </div>
+    <div class="export-block">
+      <div class="export-info" id="bufferInfo">Buffer: 0 samples · 0.0 s</div>
+      <div class="export-row">
+        <label>From</label>
+        <input type="number" id="exportFrom" placeholder="seconds ago (e.g. 60)" min="0" step="1" />
+      </div>
+      <div class="export-row">
+        <label>To</label>
+        <input type="number" id="exportTo" placeholder="seconds ago (e.g. 0)" min="0" step="1" value="0" />
+      </div>
+      <div class="export-info" style="margin-top:4px;">Leave From blank to export all. To=0 means now.</div>
+      <button class="btn-amber" onclick="exportCSV()">DOWNLOAD CSV</button>
+    </div>
+
+    <!-- ECG Display -->
     <div class="section-hdr">
       <div class="section-hdr-line ecg-line"></div>
       <div class="section-hdr-title">ECG Display</div>
@@ -455,6 +708,12 @@
         <input type="range" id="ecgYRange" min="0.2" max="5" step="0.1" value="1.5"
                oninput="ecgYVal.textContent=parseFloat(this.value).toFixed(1)">
         <span class="sl-val" id="ecgYVal">1.5</span>
+      </div>
+      <div class="sl-row">
+        <span class="sl-lbl">Window</span>
+        <input type="range" id="winSl" min="100" max="1000" step="50" value="500"
+               oninput="winVal.textContent=this.value">
+        <span class="sl-val" id="winVal">500</span>
       </div>
       <div class="sl-row">
         <span class="sl-lbl">Threshold</span>
@@ -470,7 +729,7 @@
       </div>
     </div>
 
-    <!-- Resp Display controls -->
+    <!-- Resp Display -->
     <div class="section-hdr">
       <div class="section-hdr-line resp-line"></div>
       <div class="section-hdr-title">Resp Display</div>
@@ -482,15 +741,9 @@
                oninput="respYVal.textContent=this.value">
         <span class="sl-val" id="respYVal">20</span>
       </div>
-      <div class="sl-row">
-        <span class="sl-lbl">Window</span>
-        <input type="range" id="winSl" min="200" max="1000" step="50" value="500"
-               oninput="winVal.textContent=this.value">
-        <span class="sl-val" id="winVal">500</span>
-      </div>
     </div>
 
-    <!-- Controls -->
+    <!-- Resp Commands -->
     <div class="section-hdr">
       <div class="section-hdr-line neutral-line"></div>
       <div class="section-hdr-title">Resp Commands</div>
@@ -509,7 +762,8 @@
       <div class="log" id="log"></div>
     </div>
 
-    <!-- Firmware hint -->
+    </div><!-- end collapsible-body -->
+
     <div class="fw-hint">
       Expected format:<br>
       <code>t_us,ecg_mv,resp_mm,rmax,rmin</code><br>
@@ -521,75 +775,58 @@
 
 <script>
 // ===================== CONFIG =====================
-const WINDOW    = 500;
-const ECG_SR    = 100;   // decimated ECG sample rate (Hz)
-const RESP_SR   = 50;    // respiration sample rate (Hz)
-const BPM_HIST  = 60;
+const ECG_SR   = 100;
+const RESP_SR  = 50;
+const BPM_HIST = 60;
 
-// ===================== ECG STATE =====================
-let ecgSamples  = new Float32Array(WINDOW);
-let ecgPeakMv   = 0;
-let ecgNowMv    = 0;
+// 10 minutes of history at ECG_SR
+// We store unified records: { t_us, ecg_mv, resp_mm, rmax, rmin, wallTime }
+const MAX_HISTORY = ECG_SR * 60 * 10; // 60,000 samples
+let history = [];       // ring buffer as array (we'll cap it)
+let writeIdx = 0;       // for ring buffer logic
 
-// ===================== RESP STATE =====================
-let respSamples = new Array(WINDOW).fill(0);
-let respNow     = 0;
-let respMax     = 0;
-let respMin     = 0;
+// Viewport: index into history where current view starts
+// viewOffset = 0 means showing the most recent WINDOW samples (live)
+// viewOffset > 0 means scrolled back by that many samples
+let viewOffset = 0;
+let liveFollow = true;
 
-// RRPM detection (simple zero-crossing based)
+// Current display window size (in samples)
+function getWindow() { return parseInt(document.getElementById('winSl').value); }
+
+// ===================== LIVE STATE (latest values for metrics) =====================
+let ecgPeakMv = 0, ecgNowMv = 0;
+let respNow = 0, respMax = 0, respMin = 0;
+
+// ===================== RESP DETECTOR =====================
 const respDet = {
-  sampleCount: 0,
-  lastCrossIdx: 0,
-  rrpmAvg: 0,
-  rrpm: 0,
-  prevVal: 0,
-
+  sampleCount: 0, lastCrossIdx: 0, rrpmAvg: 0, rrpm: 0, prevVal: 0,
   process(mm) {
     this.sampleCount++;
     const crossed = this.prevVal < 0 && mm >= 0;
     this.prevVal = mm;
-
     if (crossed) {
       const interval = this.sampleCount - this.lastCrossIdx;
       this.lastCrossIdx = this.sampleCount;
-      if (interval > RESP_SR * 1.5) { // min ~40 breaths/min guard
-        const breathsPerMin = (RESP_SR * 60) / interval;
-        if (this.rrpmAvg === 0) {
-          this.rrpmAvg = breathsPerMin;
-        } else {
-          this.rrpmAvg = 0.8 * this.rrpmAvg + 0.2 * breathsPerMin;
-        }
+      if (interval > RESP_SR * 1.5) {
+        const bpm = (RESP_SR * 60) / interval;
+        this.rrpmAvg = this.rrpmAvg === 0 ? bpm : 0.8 * this.rrpmAvg + 0.2 * bpm;
         this.rrpm = this.rrpmAvg;
       }
     }
   }
 };
 
-// BPM history
-let bpmHistory = new Array(BPM_HIST).fill(0);
-
 // ===================== BPM DETECTOR =====================
+let bpmHistory = [];
 const bpmDet = {
-  threshold:   0.4,
-  refractory:  40,
-  peak:        0,
-  baseline:    0,
-  inPeak:      false,
-  lastIdx:     0,
-  sampleCount: 0,
-  rrAvg:       0,
-  bpm:         0,
-  rrMs:        0,
-
+  threshold: 0.4, refractory: 40, peak: 0, baseline: 0,
+  inPeak: false, lastIdx: 0, sampleCount: 0, rrAvg: 0, bpm: 0, rrMs: 0,
   process(mv) {
     this.sampleCount++;
     this.baseline = 0.999 * this.baseline + 0.001 * mv;
     const c = mv - this.baseline;
-
-    if (!this.inPeak && c > this.threshold) {
-      this.inPeak = true; this.peak = c;
-    }
+    if (!this.inPeak && c > this.threshold) { this.inPeak = true; this.peak = c; }
     if (this.inPeak) {
       if (c > this.peak) this.peak = c;
       if (c < this.threshold * 0.5) {
@@ -603,8 +840,8 @@ const bpmDet = {
           this.threshold = Math.max(0.05, Math.min(2.0, 0.5 * this.peak));
           document.getElementById('threshSl').value = this.threshold.toFixed(2);
           document.getElementById('threshVal').textContent = this.threshold.toFixed(2);
-          bpmHistory.push(this.bpm);
-          if (bpmHistory.length > BPM_HIST) bpmHistory.shift();
+          bpmHistory.push({ bpm: this.bpm, t: Date.now() });
+          if (bpmHistory.length > 300) bpmHistory.shift();
         }
         this.peak = 0;
       }
@@ -612,16 +849,40 @@ const bpmDet = {
   }
 };
 
-// ===================== SAMPLE RATE TRACKING =====================
-let sampleCounter = 0;
-let lastRateTime  = Date.now();
-let displayedSPS  = 0;
+// ===================== SAMPLE RATE =====================
+let sampleCounter = 0, lastRateTime = Date.now(), displayedSPS = 0;
+
+// ===================== PUSH SAMPLE =====================
+function pushSample(rec) {
+  // rec = { t_us, ecg_mv, resp_mm, rmax, rmin, wallTime }
+  if (history.length < MAX_HISTORY) {
+    history.push(rec);
+  } else {
+    history[writeIdx] = rec;
+    writeIdx = (writeIdx + 1) % MAX_HISTORY;
+  }
+}
+
+// Get history as ordered array (oldest first)
+function getOrderedHistory() {
+  if (history.length < MAX_HISTORY) return history;
+  return [...history.slice(writeIdx), ...history.slice(0, writeIdx)];
+}
+
+// ===================== SCROLLBAR STATE =====================
+// viewOffset is in samples from the END (0 = live end)
+// Clamped to [0, max] where max = history.length - WINDOW
+
+function getMaxOffset() {
+  return Math.max(0, history.length - getWindow());
+}
+
+function clampOffset(v) {
+  return Math.max(0, Math.min(getMaxOffset(), v));
+}
 
 // ===================== SERIAL =====================
-let port   = null;
-let reader = null;
-let writer = null;
-let buffer = "";
+let port = null, reader = null, writer = null, buffer = "";
 
 document.getElementById('connectBtn').addEventListener('click', toggleConnect);
 
@@ -630,20 +891,15 @@ async function toggleConnect() {
 }
 
 async function doConnect() {
-  if (!('serial' in navigator)) {
-    alert('Web Serial not supported.\nUse Chrome or Edge.');
-    return;
-  }
+  if (!('serial' in navigator)) { alert('Web Serial not supported.\nUse Chrome or Edge.'); return; }
   try {
     log('Requesting port…', 'neutral');
     port = await navigator.serial.requestPort();
     await port.open({ baudRate: 115200 });
-
     const dec = new TextDecoderStream();
     port.readable.pipeTo(dec.writable);
     reader = dec.readable.getReader();
     writer = port.writable.getWriter();
-
     setConnected(true);
     log('Connected · 115200 baud', 'ecg');
     readLoop();
@@ -669,93 +925,75 @@ async function readLoop() {
       const { value, done } = await reader.read();
       if (done) break;
       if (!value) continue;
-
       buffer += value;
       const lines = buffer.split('\n');
       buffer = lines.pop();
-
       for (const raw of lines) {
         const line = raw.trim();
         if (!line) continue;
-
         if (line.startsWith('#') || line.startsWith('=') || isNaN(line[0])) {
-          log(line, 'neutral');
-          continue;
+          log(line, 'neutral'); continue;
         }
-
         const parts = line.split(',');
+        const wallTime = Date.now();
 
-        // Unified format: t_us,ecg_mv,resp_mm,rmax,rmin  (5 fields)
+        // Unified: t_us,ecg_mv,resp_mm,rmax,rmin
         if (parts.length === 5) {
-          const ecgMv   = parseFloat(parts[1]);
-          const respMm  = parseFloat(parts[2]);
-          const rmax    = parseFloat(parts[3]);
-          const rmin    = parseFloat(parts[4]);
-
+          const t_us   = parseInt(parts[0]);
+          const ecgMv  = parseFloat(parts[1]);
+          const respMm = parseFloat(parts[2]);
+          const rmax   = parseFloat(parts[3]);
+          const rmin   = parseFloat(parts[4]);
           if (!isNaN(ecgMv)) {
             ecgNowMv = ecgMv;
             if (Math.abs(ecgMv) > Math.abs(ecgPeakMv)) ecgPeakMv = ecgMv;
-            ecgSamples.copyWithin(0, 1);
-            ecgSamples[WINDOW - 1] = ecgMv;
             bpmDet.process(ecgMv);
           }
-
           if (!isNaN(respMm)) {
             respNow = respMm;
             if (!isNaN(rmax)) respMax = rmax;
             if (!isNaN(rmin)) respMin = rmin;
-            respSamples.push(respMm);
-            if (respSamples.length > WINDOW) respSamples.shift();
             respDet.process(respMm);
+            if (rsa.active) rsa.processSample(respMm, bpmDet.rrMs);
           }
-
-          sampleCounter++;
-          const now = Date.now();
-          if (now - lastRateTime >= 1000) {
-            displayedSPS = sampleCounter;
-            sampleCounter = 0;
-            lastRateTime = now;
-            document.getElementById('rateChip').textContent = displayedSPS + ' SPS';
-          }
+          pushSample({ t_us: isNaN(t_us) ? wallTime*1000 : t_us, ecg_mv: ecgMv, resp_mm: respMm, rmax, rmin, wallTime });
+          tickRate();
           continue;
         }
 
-        // Legacy fallback: single ECG float
+        // Legacy single ECG float
         if (parts.length === 1) {
           const mv = parseFloat(parts[0]);
           if (!isNaN(mv)) {
             ecgNowMv = mv;
             if (Math.abs(mv) > Math.abs(ecgPeakMv)) ecgPeakMv = mv;
-            ecgSamples.copyWithin(0, 1);
-            ecgSamples[WINDOW - 1] = mv;
             bpmDet.process(mv);
-            sampleCounter++;
+            pushSample({ t_us: wallTime*1000, ecg_mv: mv, resp_mm: NaN, rmax: NaN, rmin: NaN, wallTime });
+            tickRate();
           }
           continue;
         }
 
-        // Legacy fallback: resp CSV resp_mm,pmax,pmin
+        // Legacy resp: mm,pmax,pmin
         if (parts.length === 3) {
-          const mm   = parseFloat(parts[0]);
-          const rmax = parseFloat(parts[1]);
-          const rmin = parseFloat(parts[2]);
+          const mm = parseFloat(parts[0]), rmax = parseFloat(parts[1]), rmin = parseFloat(parts[2]);
           if (!isNaN(mm)) {
             respNow = mm; respMax = rmax; respMin = rmin;
-            respSamples.push(mm);
-            if (respSamples.length > WINDOW) respSamples.shift();
             respDet.process(mm);
+            pushSample({ t_us: wallTime*1000, ecg_mv: NaN, resp_mm: mm, rmax, rmin, wallTime });
           }
           continue;
         }
 
-        // 6-field legacy (from spi.py capture): t_us,s1,s2,s3,ch1,ch2
+        // Legacy 6-field: t_us,s1,s2,s3,ch1,ch2
         if (parts.length === 6) {
-          const ch1 = parseFloat(parts[4]);
+          const t_us = parseInt(parts[0]);
+          const ch1  = parseFloat(parts[4]);
           if (!isNaN(ch1)) {
             ecgNowMv = ch1;
-            ecgSamples.copyWithin(0, 1);
-            ecgSamples[WINDOW - 1] = ch1;
             bpmDet.process(ch1);
+            pushSample({ t_us: isNaN(t_us) ? wallTime*1000 : t_us, ecg_mv: ch1, resp_mm: NaN, rmax: NaN, rmin: NaN, wallTime });
+            tickRate();
           }
         }
       }
@@ -767,51 +1005,112 @@ async function readLoop() {
   }
 }
 
+function tickRate() {
+  sampleCounter++;
+  const now = Date.now();
+  if (now - lastRateTime >= 1000) {
+    displayedSPS = sampleCounter; sampleCounter = 0; lastRateTime = now;
+    document.getElementById('rateChip').textContent = displayedSPS + ' SPS';
+  }
+}
+
 function setConnected(on) {
-  const dot = document.getElementById('statusDot');
-  const txt = document.getElementById('statusText');
-  const btn = document.getElementById('connectBtn');
-  const calBtn = document.getElementById('calBtn');
-  const rpBtn  = document.getElementById('resetPkBtn');
-  dot.classList.toggle('live', on);
-  txt.textContent = on ? 'CONNECTED' : 'DISCONNECTED';
-  btn.textContent = on ? 'DISCONNECT' : 'CONNECT DEVICE';
-  calBtn.disabled = !on;
-  rpBtn.disabled  = !on;
+  document.getElementById('statusDot').classList.toggle('live', on);
+  document.getElementById('statusText').textContent = on ? 'CONNECTED' : 'DISCONNECTED';
+  document.getElementById('connectBtn').textContent = on ? 'DISCONNECT' : 'CONNECT DEVICE';
+  document.getElementById('calBtn').disabled    = !on;
+  document.getElementById('resetPkBtn').disabled = !on;
 }
 
 async function sendCmd(cmd) {
   if (!writer) return;
-  try {
-    await writer.write(new TextEncoder().encode(cmd));
-    log('Sent: ' + cmd, 'resp');
-  } catch(e) {
-    log('Write error: ' + e.message, 'warn');
+  try { await writer.write(new TextEncoder().encode(cmd)); log('Sent: ' + cmd, 'resp'); }
+  catch(e) { log('Write error: ' + e.message, 'warn'); }
+}
+
+// ===================== LIVE FOLLOW =====================
+function toggleLiveFollow() {
+  liveFollow = !liveFollow;
+  if (liveFollow) { viewOffset = 0; }
+  updateLiveChip();
+}
+
+function updateLiveChip() {
+  const chip = document.getElementById('liveChip');
+  if (liveFollow) {
+    chip.className = 'chip live-chip';
+    chip.textContent = '⬤ LIVE';
+  } else {
+    chip.className = 'chip paused-chip';
+    chip.textContent = '⏸ PAUSED';
   }
 }
 
 // ===================== CONTROLS =====================
 function resetAll() {
-  ecgPeakMv = 0;
-  bpmDet.bpm = 0; bpmDet.rrAvg = 0; bpmDet.rrMs = 0;
-  bpmHistory = new Array(BPM_HIST).fill(0);
-  respMax = 0; respMin = 0;
-  respDet.rrpm = 0; respDet.rrpmAvg = 0;
+  ecgPeakMv = 0; bpmDet.bpm = 0; bpmDet.rrAvg = 0; bpmDet.rrMs = 0;
+  bpmHistory = [];
+  respMax = 0; respMin = 0; respDet.rrpm = 0; respDet.rrpmAvg = 0;
   log('All peaks reset', 'warn');
 }
 
 function clearAll() {
-  ecgSamples  = new Float32Array(WINDOW);
-  respSamples = new Array(WINDOW).fill(0);
-  ecgPeakMv   = 0;
+  history = []; writeIdx = 0; viewOffset = 0; liveFollow = true;
+  ecgPeakMv = 0; updateLiveChip();
   log('Waveforms cleared', 'neutral');
+}
+
+// ===================== EXPORT CSV =====================
+function exportCSV() {
+  const ordered = getOrderedHistory();
+  if (ordered.length === 0) { log('No data to export', 'warn'); return; }
+
+  const fromSec = parseFloat(document.getElementById('exportFrom').value);
+  const toSec   = parseFloat(document.getElementById('exportTo').value) || 0;
+
+  const latestWall = ordered[ordered.length - 1].wallTime;
+
+  let filtered = ordered;
+  if (!isNaN(fromSec) && fromSec > 0) {
+    const fromMs = latestWall - fromSec * 1000;
+    filtered = filtered.filter(r => r.wallTime >= fromMs);
+  }
+  if (toSec > 0) {
+    const toMs = latestWall - toSec * 1000;
+    filtered = filtered.filter(r => r.wallTime <= toMs);
+  }
+
+  if (filtered.length === 0) { log('No samples in that time range', 'warn'); return; }
+
+  const rows = ['t_us,wall_time_iso,ecg_mv,resp_mm,resp_rmax,resp_rmin'];
+  for (const r of filtered) {
+    const iso = new Date(r.wallTime).toISOString();
+    rows.push([
+      isNaN(r.t_us)   ? '' : r.t_us,
+      iso,
+      isNaN(r.ecg_mv)  ? '' : r.ecg_mv.toFixed(6),
+      isNaN(r.resp_mm) ? '' : r.resp_mm.toFixed(4),
+      isNaN(r.rmax)    ? '' : r.rmax.toFixed(4),
+      isNaN(r.rmin)    ? '' : r.rmin.toFixed(4),
+    ].join(','));
+  }
+
+  const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  const ts   = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  a.href     = url;
+  a.download = `hrv_resp_${ts}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  log(`Exported ${filtered.length} samples → ${a.download}`, 'amber');
 }
 
 // ===================== LOG =====================
 function log(msg, type) {
   const box = document.getElementById('log');
   const d   = document.createElement('div');
-  d.className = 'log-line' + (type === 'ecg' ? ' ecg-log' : type === 'resp' ? ' resp-log' : type === 'warn' ? ' warn-log' : '');
+  d.className = 'log-line' + (type === 'ecg' ? ' ecg-log' : type === 'resp' ? ' resp-log' : type === 'warn' ? ' warn-log' : type === 'amber' ? ' amber-log' : '');
   d.textContent = '› ' + msg;
   box.prepend(d);
   while (box.children.length > 50) box.removeChild(box.lastChild);
@@ -827,310 +1126,584 @@ const bsc        = bpmCvs.getContext('2d');
 
 function resize() {
   const dpr = window.devicePixelRatio || 1;
-
-  const er = ecgCanvas.getBoundingClientRect();
-  ecgCanvas.width  = er.width  * dpr;
-  ecgCanvas.height = er.height * dpr;
-  esc.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-  const rr = respCanvas.getBoundingClientRect();
-  respCanvas.width  = rr.width  * dpr;
-  respCanvas.height = rr.height * dpr;
-  rsc.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-  const br = bpmCvs.getBoundingClientRect();
-  bpmCvs.width  = br.width  * dpr;
-  bpmCvs.height = br.height * dpr;
-  bsc.setTransform(dpr, 0, 0, dpr, 0, 0);
+  for (const [cvs, ctx] of [[ecgCanvas, esc], [respCanvas, rsc], [bpmCvs, bsc]]) {
+    const r = cvs.getBoundingClientRect();
+    cvs.width  = r.width  * dpr;
+    cvs.height = r.height * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
 }
-
 window.addEventListener('resize', resize);
 
-// ===================== DRAW ECG (matches original ecg.html exactly) =====================
-function drawECG() {
+// ===================== GET VIEWPORT SLICES =====================
+function getViewSlice() {
+  const ordered = getOrderedHistory();
+  const WINDOW  = getWindow();
+  const total   = ordered.length;
+  if (total === 0) return { ecg: new Float32Array(WINDOW), resp: new Array(WINDOW).fill(0), startIdx: 0, total };
+
+  // viewOffset=0 → show tail; viewOffset=N → show N samples before tail
+  const endIdx   = Math.max(0, total - viewOffset);
+  const startIdx = Math.max(0, endIdx - WINDOW);
+  const slice    = ordered.slice(startIdx, endIdx);
+
+  const ecg  = new Float32Array(WINDOW);
+  const resp = new Array(WINDOW).fill(0);
+  const pad  = WINDOW - slice.length;
+
+  for (let i = 0; i < slice.length; i++) {
+    ecg[pad + i]  = isNaN(slice[i].ecg_mv)  ? 0 : slice[i].ecg_mv;
+    resp[pad + i] = isNaN(slice[i].resp_mm) ? 0 : slice[i].resp_mm;
+  }
+  return { ecg, resp, startIdx, total, slice };
+}
+
+// ===================== DRAW ECG =====================
+function drawECG(ecgSamples) {
   const w = ecgCanvas.clientWidth;
   const h = ecgCanvas.clientHeight;
   if (w < 10 || h < 10) return;
-
   esc.clearRect(0, 0, w, h);
 
   const PL = 52, PR = 14, PT = 44, PB = 30;
   const yr = parseFloat(document.getElementById('ecgYRange').value);
+  const WINDOW = getWindow();
 
-  function yp(v) {
-    const t = (v + yr) / (2 * yr);
-    return h - PB - t * (h - PT - PB);
-  }
-  function xp(i) {
-    return PL + i / (WINDOW - 1) * (w - PL - PR);
-  }
+  const yp = v => h - PB - ((v + yr) / (2 * yr)) * (h - PT - PB);
+  const xp = i => PL + i / (WINDOW - 1) * (w - PL - PR);
 
-  // background
-  esc.fillStyle = '#0d1620';
-  esc.fillRect(0, 0, w, h);
+  esc.fillStyle = '#0d1620'; esc.fillRect(0, 0, w, h);
 
-  // grid
-  esc.strokeStyle = '#0e2030';
-  esc.lineWidth = 1;
+  esc.strokeStyle = '#0e2030'; esc.lineWidth = 1;
   [-yr, -yr/2, 0, yr/2, yr].forEach(v => {
-    const y = yp(v);
-    esc.beginPath(); esc.moveTo(PL, y); esc.lineTo(w - PR, y); esc.stroke();
+    const y = yp(v); esc.beginPath(); esc.moveTo(PL, y); esc.lineTo(w-PR, y); esc.stroke();
   });
   for (let i = 0; i <= 10; i++) {
-    const x = PL + i / 10 * (w - PL - PR);
-    esc.beginPath(); esc.moveTo(x, PT); esc.lineTo(x, h - PB); esc.stroke();
+    const x = PL + i/10*(w-PL-PR); esc.beginPath(); esc.moveTo(x, PT); esc.lineTo(x, h-PB); esc.stroke();
   }
-
-  // zero line
-  esc.strokeStyle = '#1a3550';
-  esc.setLineDash([4, 4]);
-  esc.beginPath(); esc.moveTo(PL, yp(0)); esc.lineTo(w - PR, yp(0)); esc.stroke();
+  esc.strokeStyle = '#1a3550'; esc.setLineDash([4,4]);
+  esc.beginPath(); esc.moveTo(PL, yp(0)); esc.lineTo(w-PR, yp(0)); esc.stroke();
   esc.setLineDash([]);
 
-  // Y axis labels
-  esc.fillStyle = '#3a6070';
-  esc.font = '10px ui-monospace, monospace';
-  esc.textAlign = 'right';
-  esc.textBaseline = 'middle';
-  [-yr, -yr/2, 0, yr/2, yr].forEach(v => {
-    esc.fillText(v.toFixed(1), PL - 6, yp(v));
-  });
+  esc.fillStyle = '#3a6070'; esc.font = '10px ui-monospace, monospace';
+  esc.textAlign = 'right'; esc.textBaseline = 'middle';
+  [-yr, -yr/2, 0, yr/2, yr].forEach(v => esc.fillText(v.toFixed(1), PL-6, yp(v)));
 
-  // X axis time labels
-  esc.textAlign = 'center';
-  esc.textBaseline = 'top';
+  esc.textAlign = 'center'; esc.textBaseline = 'top';
   for (let i = 0; i <= 5; i++) {
-    const x = PL + i / 5 * (w - PL - PR);
-    const t = ((i / 5) * WINDOW / ECG_SR).toFixed(1);
-    esc.fillText(t + 's', x, h - PB + 4);
+    const x = PL + i/5*(w-PL-PR);
+    const t = ((i/5)*WINDOW/ECG_SR).toFixed(1);
+    esc.fillText(t+'s', x, h-PB+4);
   }
 
   // glow
   esc.beginPath();
-  for (let i = 0; i < WINDOW; i++) {
-    const x = xp(i), y = yp(ecgSamples[i]);
-    i === 0 ? esc.moveTo(x, y) : esc.lineTo(x, y);
-  }
-  esc.strokeStyle = 'rgba(0,229,255,0.08)';
-  esc.lineWidth = 7;
-  esc.stroke();
+  for (let i = 0; i < WINDOW; i++) { const x=xp(i),y=yp(ecgSamples[i]); i===0?esc.moveTo(x,y):esc.lineTo(x,y); }
+  esc.strokeStyle = 'rgba(0,229,255,0.08)'; esc.lineWidth = 7; esc.stroke();
 
-  // main trace
+  // trace
   esc.beginPath();
-  for (let i = 0; i < WINDOW; i++) {
-    const x = xp(i), y = yp(ecgSamples[i]);
-    i === 0 ? esc.moveTo(x, y) : esc.lineTo(x, y);
+  for (let i = 0; i < WINDOW; i++) { const x=xp(i),y=yp(ecgSamples[i]); i===0?esc.moveTo(x,y):esc.lineTo(x,y); }
+  esc.strokeStyle = '#00e5ff'; esc.lineWidth = 1.5; esc.stroke();
+
+  // Scroll indicator label if not live
+  if (!liveFollow || viewOffset > 0) {
+    esc.fillStyle = 'rgba(251,191,36,0.8)';
+    esc.font = 'bold 10px Share Tech Mono, monospace';
+    esc.textAlign = 'left'; esc.textBaseline = 'top';
+    const secsBack = (viewOffset / ECG_SR).toFixed(1);
+    esc.fillText(`◂ ${secsBack}s ago`, PL+8, 30);
   }
-  esc.strokeStyle = '#00e5ff';
-  esc.lineWidth = 1.5;
-  esc.stroke();
 
-  // scope title
-  esc.fillStyle = '#00e5ff';
-  esc.font = 'bold 12px ui-monospace, monospace';
-  esc.textAlign = 'left';
-  esc.textBaseline = 'top';
-  esc.fillText('LIVE ECG', PL + 8, 12);
+  const mvColor = Math.abs(ecgNowMv) > yr*0.9 ? '#ff4d6d' : '#c8e6f5';
+  esc.fillStyle = mvColor; esc.font = '12px ui-monospace, monospace';
+  esc.textAlign = 'right'; esc.textBaseline = 'top';
+  esc.fillText(`${ecgNowMv>=0?'+':''}${ecgNowMv.toFixed(3)} mV`, w-PR, 12);
 
-  // mV readout top right
-  const mvColor = Math.abs(ecgNowMv) > yr * 0.9 ? '#ff4d6d' : '#c8e6f5';
-  esc.fillStyle = mvColor;
-  esc.font = '12px ui-monospace, monospace';
-  esc.textAlign = 'right';
-  esc.fillText(`${ecgNowMv >= 0 ? '+' : ''}${ecgNowMv.toFixed(3)} mV`, w - PR, 12);
-
-  // border
-  esc.strokeStyle = '#103047';
-  esc.lineWidth = 1;
-  esc.strokeRect(PL, PT, w - PL - PR, h - PT - PB);
+  esc.strokeStyle = '#103047'; esc.lineWidth = 1;
+  esc.strokeRect(PL, PT, w-PL-PR, h-PT-PB);
 }
 
 // ===================== DRAW RESP =====================
-function drawResp() {
+function drawResp(respSamples) {
   const w = respCanvas.clientWidth;
   const h = respCanvas.clientHeight;
   if (w < 10 || h < 10) return;
 
   const PL = 46, PR = 12, PT = 36, PB = 22;
   const yr = parseFloat(document.getElementById('respYRange').value);
-  const pts = respSamples;
+  const WINDOW = getWindow();
 
-  const yp = v => h - PB - ((v + yr) / (2 * yr)) * (h - PT - PB);
-  const xp = i => PL + i / (pts.length - 1 || 1) * (w - PL - PR);
+  const yp = v => h - PB - ((v+yr)/(2*yr))*(h-PT-PB);
+  const xp = i => PL + i/(respSamples.length-1||1)*(w-PL-PR);
 
-  rsc.fillStyle = '#0a1525';
-  rsc.fillRect(0, 0, w, h);
-
-  // grid
-  rsc.strokeStyle = '#0d1e30';
-  rsc.lineWidth = 1;
-  [-yr, -yr/2, 0, yr/2, yr].forEach(v => {
-    const y = yp(v);
-    rsc.beginPath(); rsc.moveTo(PL, y); rsc.lineTo(w - PR, y); rsc.stroke();
+  rsc.fillStyle = '#0a1525'; rsc.fillRect(0, 0, w, h);
+  rsc.strokeStyle = '#0d1e30'; rsc.lineWidth = 1;
+  [-yr,-yr/2,0,yr/2,yr].forEach(v => {
+    const y=yp(v); rsc.beginPath(); rsc.moveTo(PL,y); rsc.lineTo(w-PR,y); rsc.stroke();
   });
-  for (let i = 0; i <= 10; i++) {
-    const x = PL + i / 10 * (w - PL - PR);
-    rsc.beginPath(); rsc.moveTo(x, PT); rsc.lineTo(x, h - PB); rsc.stroke();
+  for (let i=0;i<=10;i++) {
+    const x=PL+i/10*(w-PL-PR); rsc.beginPath(); rsc.moveTo(x,PT); rsc.lineTo(x,h-PB); rsc.stroke();
   }
-
-  // zero line
-  rsc.strokeStyle = '#1c2e42';
-  rsc.setLineDash([3, 4]);
-  rsc.beginPath(); rsc.moveTo(PL, yp(0)); rsc.lineTo(w - PR, yp(0)); rsc.stroke();
+  rsc.strokeStyle='#1c2e42'; rsc.setLineDash([3,4]);
+  rsc.beginPath(); rsc.moveTo(PL,yp(0)); rsc.lineTo(w-PR,yp(0)); rsc.stroke();
   rsc.setLineDash([]);
 
-  // peak max/min marker lines
-  if (respMax !== 0) {
-    rsc.strokeStyle = 'rgba(34,211,165,0.3)';
-    rsc.setLineDash([2, 6]); rsc.lineWidth = 1;
-    const ym = yp(Math.min(respMax, yr));
-    rsc.beginPath(); rsc.moveTo(PL, ym); rsc.lineTo(w - PR, ym); rsc.stroke();
-    rsc.setLineDash([]);
+  if (respMax!==0) {
+    rsc.strokeStyle='rgba(34,211,165,0.3)'; rsc.setLineDash([2,6]); rsc.lineWidth=1;
+    const ym=yp(Math.min(respMax,yr)); rsc.beginPath(); rsc.moveTo(PL,ym); rsc.lineTo(w-PR,ym); rsc.stroke(); rsc.setLineDash([]);
   }
-  if (respMin !== 0) {
-    rsc.strokeStyle = 'rgba(244,63,94,0.3)';
-    rsc.setLineDash([2, 6]); rsc.lineWidth = 1;
-    const ym = yp(Math.max(respMin, -yr));
-    rsc.beginPath(); rsc.moveTo(PL, ym); rsc.lineTo(w - PR, ym); rsc.stroke();
-    rsc.setLineDash([]);
+  if (respMin!==0) {
+    rsc.strokeStyle='rgba(244,63,94,0.3)'; rsc.setLineDash([2,6]); rsc.lineWidth=1;
+    const ym=yp(Math.max(respMin,-yr)); rsc.beginPath(); rsc.moveTo(PL,ym); rsc.lineTo(w-PR,ym); rsc.stroke(); rsc.setLineDash([]);
   }
 
-  // y labels
-  rsc.fillStyle = '#2e5470'; rsc.font = '9px Share Tech Mono, monospace';
-  rsc.textAlign = 'right'; rsc.textBaseline = 'middle';
-  [-yr, -yr/2, 0, yr/2, yr].forEach(v => rsc.fillText(v.toFixed(0), PL - 5, yp(v)));
+  rsc.fillStyle='#2e5470'; rsc.font='9px Share Tech Mono, monospace';
+  rsc.textAlign='right'; rsc.textBaseline='middle';
+  [-yr,-yr/2,0,yr/2,yr].forEach(v => rsc.fillText(v.toFixed(0),PL-5,yp(v)));
 
-  // glow
   rsc.beginPath();
-  for (let i = 0; i < pts.length; i++) {
-    const x = xp(i), y = yp(pts[i]);
-    i === 0 ? rsc.moveTo(x, y) : rsc.lineTo(x, y);
-  }
-  rsc.strokeStyle = 'rgba(167,139,250,0.10)';
-  rsc.lineWidth = 6; rsc.stroke();
+  for (let i=0;i<respSamples.length;i++) { const x=xp(i),y=yp(respSamples[i]); i===0?rsc.moveTo(x,y):rsc.lineTo(x,y); }
+  rsc.strokeStyle='rgba(167,139,250,0.10)'; rsc.lineWidth=6; rsc.stroke();
 
-  // main trace
   rsc.beginPath();
-  for (let i = 0; i < pts.length; i++) {
-    const x = xp(i), y = yp(pts[i]);
-    i === 0 ? rsc.moveTo(x, y) : rsc.lineTo(x, y);
-  }
-  rsc.strokeStyle = '#a78bfa'; rsc.lineWidth = 2; rsc.stroke();
+  for (let i=0;i<respSamples.length;i++) { const x=xp(i),y=yp(respSamples[i]); i===0?rsc.moveTo(x,y):rsc.lineTo(x,y); }
+  rsc.strokeStyle='#a78bfa'; rsc.lineWidth=2; rsc.stroke();
 
-  // readout
-  rsc.fillStyle = '#cce4f5'; rsc.font = '11px Share Tech Mono, monospace';
-  rsc.textAlign = 'right'; rsc.textBaseline = 'top';
-  rsc.fillText(`${respNow >= 0 ? '+' : ''}${respNow.toFixed(2)} mm`, w - PR, 10);
+  rsc.fillStyle='#cce4f5'; rsc.font='11px Share Tech Mono, monospace';
+  rsc.textAlign='right'; rsc.textBaseline='top';
+  rsc.fillText(`${respNow>=0?'+':''}${respNow.toFixed(2)} mm`, w-PR, 10);
 
-  // border
-  rsc.strokeStyle = '#0f2840'; rsc.lineWidth = 1;
-  rsc.strokeRect(PL, PT, w - PL - PR, h - PT - PB);
+  rsc.strokeStyle='#0f2840'; rsc.lineWidth=1;
+  rsc.strokeRect(PL, PT, w-PL-PR, h-PT-PB);
 }
 
-// ===================== DRAW BPM STRIP (matches original ecg.html exactly) =====================
+// ===================== DRAW BPM STRIP =====================
 function drawBPMStrip() {
-  const w = bpmCvs.clientWidth;
-  const h = bpmCvs.clientHeight;
-  if (w < 10 || h < 10) return;
+  const w=bpmCvs.clientWidth, h=bpmCvs.clientHeight;
+  if(w<10||h<10) return;
+  bsc.clearRect(0,0,w,h);
+  bsc.fillStyle='#0a1525'; bsc.fillRect(0,0,w,h);
 
-  bsc.clearRect(0, 0, w, h);
-  bsc.fillStyle = '#0d1620';
-  bsc.fillRect(0, 0, w, h);
+  const PL=46, PR=14, PT=8, PB=18;
+  const minBPM=40, maxBPM=180;
+  const yp = bpm => h - PB - ((bpm - minBPM) / (maxBPM - minBPM)) * (h - PT - PB);
 
-  const PL = 52, PR = 14, PT = 8, PB = 18;
-  const maxBPM = 200;
-  const minBPM = 40;
+  // Grid lines
+  bsc.strokeStyle='#0e2030'; bsc.lineWidth=1;
+  [60, 80, 100, 120, 140].forEach(v => {
+    const y = yp(v);
+    bsc.beginPath(); bsc.moveTo(PL, y); bsc.lineTo(w-PR, y); bsc.stroke();
+    bsc.fillStyle='#2e5470'; bsc.font='8px Share Tech Mono, monospace';
+    bsc.textAlign='right'; bsc.textBaseline='middle';
+    bsc.fillText(v, PL-4, y);
+  });
 
-  function yp(bpm) {
-    const t = (bpm - minBPM) / (maxBPM - minBPM);
-    return h - PB - t * (h - PT - PB);
+  // Normal range band (60-100)
+  const yTop = yp(100), yBot = yp(60);
+  bsc.fillStyle = 'rgba(34,211,165,0.04)';
+  bsc.fillRect(PL, yTop, w-PL-PR, yBot-yTop);
+
+  // Need at least 2 points to draw
+  const pts = bpmHistory.filter(p => p.bpm > 0);
+  if (pts.length >= 2) {
+    const tMin = pts[0].t;
+    const tMax = pts[pts.length-1].t;
+    const tSpan = Math.max(tMax - tMin, 1);
+    const xp = t => PL + ((t - tMin) / tSpan) * (w - PL - PR);
+
+    // Time axis labels
+    const spanSec = tSpan / 1000;
+    bsc.fillStyle='#2e5470'; bsc.font='8px Share Tech Mono, monospace';
+    bsc.textAlign='center'; bsc.textBaseline='top';
+    for (let i = 0; i <= 4; i++) {
+      const frac = i / 4;
+      const sec = Math.round(frac * spanSec);
+      const x = PL + frac * (w - PL - PR);
+      bsc.fillText(sec < 60 ? sec+'s' : Math.floor(sec/60)+'m'+(sec%60?String(sec%60).padStart(2,'0')+'s':''), x, h-PB+3);
+    }
+
+    // Glow
+    bsc.beginPath();
+    pts.forEach((p, i) => {
+      const x = xp(p.t), y = yp(Math.min(Math.max(p.bpm, minBPM), maxBPM));
+      i === 0 ? bsc.moveTo(x, y) : bsc.lineTo(x, y);
+    });
+    bsc.strokeStyle = 'rgba(0,229,255,0.10)';
+    bsc.lineWidth = 5; bsc.stroke();
+
+    // Main line — colour by zone
+    for (let i = 1; i < pts.length; i++) {
+      const p0 = pts[i-1], p1 = pts[i];
+      const x0 = xp(p0.t), y0 = yp(Math.min(Math.max(p0.bpm, minBPM), maxBPM));
+      const x1 = xp(p1.t), y1 = yp(Math.min(Math.max(p1.bpm, minBPM), maxBPM));
+      const abnormal = p1.bpm < 60 || p1.bpm > 100;
+      bsc.beginPath(); bsc.moveTo(x0, y0); bsc.lineTo(x1, y1);
+      bsc.strokeStyle = abnormal ? '#f43f5e' : '#00e5ff';
+      bsc.lineWidth = 1.5; bsc.stroke();
+    }
+
+    // Dots at each beat
+    pts.forEach(p => {
+      const x = xp(p.t), y = yp(Math.min(Math.max(p.bpm, minBPM), maxBPM));
+      const abnormal = p.bpm < 60 || p.bpm > 100;
+      bsc.beginPath(); bsc.arc(x, y, 2, 0, Math.PI*2);
+      bsc.fillStyle = abnormal ? '#f43f5e' : '#00e5ff';
+      bsc.fill();
+    });
+
+    // Latest BPM label at end
+    const last = pts[pts.length-1];
+    const lx = xp(last.t), ly = yp(Math.min(Math.max(last.bpm, minBPM), maxBPM));
+    bsc.fillStyle = (last.bpm < 60 || last.bpm > 100) ? '#f43f5e' : '#00e5ff';
+    bsc.font = 'bold 9px Share Tech Mono, monospace';
+    bsc.textAlign = lx > w - PR - 30 ? 'right' : 'left';
+    bsc.textBaseline = 'bottom';
+    bsc.fillText(Math.round(last.bpm), lx + (lx > w-PR-30 ? -4 : 4), ly - 2);
+  } else {
+    bsc.fillStyle='#2e5470'; bsc.font='9px Share Tech Mono, monospace';
+    bsc.textAlign='center'; bsc.textBaseline='middle';
+    bsc.fillText('Waiting for beats…', PL + (w-PL-PR)/2, PT + (h-PT-PB)/2);
   }
 
-  // grid lines at 60, 100, 140
-  bsc.strokeStyle = '#0e2030';
-  bsc.lineWidth = 1;
-  [60, 100, 140].forEach(v => {
-    const y = yp(v);
-    bsc.beginPath(); bsc.moveTo(PL, y); bsc.lineTo(w - PR, y); bsc.stroke();
-    bsc.fillStyle = '#3a6070';
-    bsc.font = '9px ui-monospace, monospace';
-    bsc.textAlign = 'right';
-    bsc.textBaseline = 'middle';
-    bsc.fillText(v, PL - 4, y);
+  // Label
+  bsc.fillStyle='#2e5470'; bsc.font='9px Share Tech Mono, monospace';
+  bsc.textAlign='left'; bsc.textBaseline='top';
+  bsc.fillText('BPM · OVER TIME', PL+4, PT);
+
+  // Border
+  bsc.strokeStyle='#0f2840'; bsc.lineWidth=1;
+  bsc.strokeRect(PL, PT, w-PL-PR, h-PT-PB);
+}
+
+// ===================== UPDATE SCROLLBARS =====================
+function updateScrollbar() {
+  const total  = history.length;
+  const WINDOW = getWindow();
+  const maxOff = getMaxOffset();
+  const thumb  = document.getElementById('ecgThumb');
+  const track  = thumb.parentElement;
+  const trackW = track.clientWidth;
+
+  if (total <= WINDOW || trackW < 10) {
+    thumb.style.width = '100%';
+    thumb.style.left  = '0px';
+    return;
+  }
+
+  const thumbW  = Math.max(20, (WINDOW / total) * trackW);
+  // position: viewOffset=0 → thumb at right, maxOff → thumb at left
+  const thumbX  = ((maxOff - viewOffset) / maxOff) * (trackW - thumbW);
+  thumb.style.width = thumbW + 'px';
+  thumb.style.left  = Math.max(0, thumbX) + 'px';
+}
+
+// ===================== SCROLLBAR DRAG =====================
+function initScrollbarDrag(trackEl, thumbEl) {
+  let dragging = false, startX = 0, startOffset = 0;
+  let trackLeft = 0, trackWidth = 0;
+
+  function getTrackInfo() {
+    const rect = trackEl.getBoundingClientRect();
+    return { left: rect.left, width: rect.width };
+  }
+
+  thumbEl.addEventListener('mousedown', e => {
+    dragging = true; thumbEl.classList.add('dragging');
+    const ti = getTrackInfo(); trackLeft = ti.left; trackWidth = ti.width;
+    startX = e.clientX; startOffset = viewOffset;
+    liveFollow = false; updateLiveChip();
+    e.preventDefault();
   });
 
-  // BPM bars
-  const barW = (w - PL - PR) / BPM_HIST;
-  bpmHistory.forEach((bpm, i) => {
-    if (bpm <= 0) return;
-    const x = PL + i * barW;
-    const y = yp(bpm);
-    const barH = h - PB - y;
-    const color = bpm < 60 ? '#ff4d6d'
-                : bpm > 100 ? '#ff4d6d'
-                : '#39ff14';
-    bsc.fillStyle = color + '88';
-    bsc.fillRect(x + 1, y, barW - 2, barH);
+  window.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    const dx = e.clientX - startX;
+    const maxOff = getMaxOffset();
+    const WINDOW = getWindow();
+    const thumbW = Math.max(20, (WINDOW / Math.max(history.length,1)) * trackWidth);
+    const usable = trackWidth - thumbW;
+    if (usable <= 0) return;
+    // moving right = moving toward live (smaller offset)
+    const dOffset = -(dx / usable) * maxOff;
+    viewOffset = clampOffset(startOffset + dOffset);
+    if (viewOffset <= 2) { viewOffset = 0; liveFollow = true; updateLiveChip(); }
   });
 
-  // label
-  bsc.fillStyle = '#3a6070';
-  bsc.font = '9px ui-monospace, monospace';
-  bsc.textAlign = 'left';
-  bsc.textBaseline = 'top';
-  bsc.fillText('BPM HISTORY', PL + 4, PT);
+  window.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false; thumbEl.classList.remove('dragging');
+  });
 
-  // border
-  bsc.strokeStyle = '#103047';
-  bsc.lineWidth = 1;
-  bsc.strokeRect(PL, PT, w - PL - PR, h - PT - PB);
+  // Click on track (not thumb) to jump
+  trackEl.addEventListener('click', e => {
+    if (e.target === thumbEl) return;
+    const ti = getTrackInfo();
+    const rel = (e.clientX - ti.left) / ti.width;
+    const maxOff = getMaxOffset();
+    // rel=1 → live end, rel=0 → oldest
+    viewOffset = clampOffset(maxOff - rel * maxOff);
+    if (viewOffset <= 2) { viewOffset = 0; liveFollow = true; updateLiveChip(); }
+    else { liveFollow = false; updateLiveChip(); }
+  });
+}
+
+// ===================== CANVAS DRAG TO SCROLL =====================
+function initCanvasDrag(canvas) {
+  let dragging = false, startX = 0, startOffset = 0;
+
+  canvas.addEventListener('mousedown', e => {
+    dragging = true; canvas.classList.add('dragging');
+    startX = e.clientX; startOffset = viewOffset;
+    e.preventDefault();
+  });
+
+  window.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    const dx = e.clientX - startX;
+    const samplesPerPx = getWindow() / (canvas.clientWidth - 52 - 14);
+    const dOffset = Math.round(-dx * samplesPerPx);
+    const newOff = clampOffset(startOffset + dOffset);
+    viewOffset = newOff;
+    if (viewOffset <= 2) { viewOffset = 0; liveFollow = true; updateLiveChip(); }
+    else { liveFollow = false; updateLiveChip(); }
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false; canvas.classList.remove('dragging');
+  });
+
+  // Scroll wheel
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    const delta = Math.round(e.deltaY * 0.5);
+    const newOff = clampOffset(viewOffset + delta);
+    viewOffset = newOff;
+    if (viewOffset <= 2) { viewOffset = 0; liveFollow = true; updateLiveChip(); }
+    else { liveFollow = false; updateLiveChip(); }
+  }, { passive: false });
 }
 
 // ===================== UPDATE METRICS =====================
 function updateMetrics() {
-  // BPM
   const bpmEl = document.getElementById('bpmBig');
   const rrEl  = document.getElementById('rrBig');
   if (bpmDet.bpm > 0) {
     bpmEl.textContent = Math.round(bpmDet.bpm);
-    bpmEl.style.color = (bpmDet.bpm < 40 || bpmDet.bpm > 150) ? '#f43f5e' : '#00e5ff';
+    bpmEl.style.color = (bpmDet.bpm<40||bpmDet.bpm>150)?'#f43f5e':'#00e5ff';
     rrEl.textContent  = bpmDet.rrMs;
   } else {
-    bpmEl.textContent = '---'; bpmEl.style.color = '#00e5ff';
-    rrEl.textContent  = '---';
+    bpmEl.textContent = '---'; bpmEl.style.color = '#00e5ff'; rrEl.textContent = '---';
   }
+  document.getElementById('nowMv').textContent  = `${ecgNowMv>=0?'+':''}${ecgNowMv.toFixed(3)}`;
+  document.getElementById('peakMv').textContent = `${ecgPeakMv>=0?'+':''}${ecgPeakMv.toFixed(3)}`;
 
-  document.getElementById('nowMv').textContent  = `${ecgNowMv >= 0 ? '+' : ''}${ecgNowMv.toFixed(3)}`;
-  document.getElementById('peakMv').textContent = `${ecgPeakMv >= 0 ? '+' : ''}${ecgPeakMv.toFixed(3)}`;
-
-  // Resp
   const rrpmEl = document.getElementById('rrpmBig');
   if (respDet.rrpm > 0) {
     rrpmEl.textContent = Math.round(respDet.rrpm);
-    rrpmEl.style.color = (respDet.rrpm < 8 || respDet.rrpm > 30) ? '#f43f5e' : '#a78bfa';
-  } else {
-    rrpmEl.textContent = '---'; rrpmEl.style.color = '#a78bfa';
-  }
+    rrpmEl.style.color = (respDet.rrpm<8||respDet.rrpm>30)?'#f43f5e':'#a78bfa';
+  } else { rrpmEl.textContent = '---'; rrpmEl.style.color = '#a78bfa'; }
 
-  document.getElementById('dispBig').textContent = `${respNow >= 0 ? '+' : ''}${respNow.toFixed(1)}`;
-  document.getElementById('nowDisp').textContent = `${respNow >= 0 ? '+' : ''}${respNow.toFixed(2)}`;
-  document.getElementById('respMax').textContent = `${respMax >= 0 ? '+' : ''}${respMax.toFixed(2)}`;
-  document.getElementById('respMin').textContent = `${respMin >= 0 ? '+' : ''}${respMin.toFixed(2)}`;
+  document.getElementById('dispBig').textContent = `${respNow>=0?'+':''}${respNow.toFixed(1)}`;
+  document.getElementById('nowDisp').textContent = `${respNow>=0?'+':''}${respNow.toFixed(2)}`;
+  document.getElementById('respMax').textContent = `${respMax>=0?'+':''}${respMax.toFixed(2)}`;
+  document.getElementById('respMin').textContent = `${respMin>=0?'+':''}${respMin.toFixed(2)}`;
+
+  // Buffer info
+  const secs = (history.length / ECG_SR).toFixed(1);
+  const pct  = ((history.length / MAX_HISTORY) * 100).toFixed(0);
+  document.getElementById('bufferInfo').textContent =
+    `Buffer: ${history.length.toLocaleString()} samples · ${secs}s · ${pct}% full`;
 }
 
 // ===================== MAIN LOOP =====================
 function frame() {
-  drawECG();
-  drawResp();
+  if (liveFollow) viewOffset = 0;
+  const { ecg, resp } = getViewSlice();
+  drawECG(ecg);
+  drawResp(resp);
   drawBPMStrip();
   updateMetrics();
+  updateRSADisplay();
+  updateScrollbar();
   requestAnimationFrame(frame);
+}
+
+// ===================== INIT =====================
+initScrollbarDrag(
+  document.getElementById('ecgScrollbar').querySelector('.scroll-track'),
+  document.getElementById('ecgThumb')
+);
+initCanvasDrag(ecgCanvas);
+initCanvasDrag(respCanvas);
+
+// ===================== RSA ANALYSIS =====================
+let rsaActive = false;
+
+const rsa = {
+  active: false,
+  phase: 'none',
+  phaseStart: 0,
+  prevResp: 0,
+  inspRR: [], expRR: [],
+  inspHRs: [], expHRs: [],
+  rsaAmplitudeMs: null,
+  cycles: 0,
+
+  reset() {
+    this.phase = 'none';
+    this.phaseStart = Date.now();
+    this.inspRR = []; this.expRR = [];
+    this.inspHRs = []; this.expHRs = [];
+    this.rsaAmplitudeMs = null;
+    this.cycles = 0;
+    this.prevResp = 0;
+  },
+
+  processSample(mm, rrMs) {
+    const now = Date.now();
+    const prev = this.prevResp;
+    this.prevResp = mm;
+    const risingCross  = prev < -0.5 && mm >= -0.5;
+    const fallingCross = prev >  0.5 && mm <=  0.5;
+    if (rrMs > 0) {
+      if (this.phase === 'insp') this.inspRR.push(rrMs);
+      if (this.phase === 'exp')  this.expRR.push(rrMs);
+    }
+    if (risingCross && this.phase !== 'insp') {
+      if (this.phase === 'exp' && this.expRR.length > 0) {
+        this.expHRs.push(avg(this.expRR));
+        this.expRR = [];
+        if (this.inspHRs.length === this.expHRs.length) {
+          this.cycles = this.inspHRs.length;
+          this._recalc();
+        }
+      }
+      this.phase = 'insp';
+      this.phaseStart = now;
+      this.inspRR = [];
+    }
+    if (fallingCross && this.phase !== 'exp') {
+      if (this.phase === 'insp' && this.inspRR.length > 0) {
+        this.inspHRs.push(avg(this.inspRR));
+        this.inspRR = [];
+      }
+      this.phase = 'exp';
+      this.phaseStart = now;
+      this.expRR = [];
+    }
+  },
+
+  _recalc() {
+    if (this.inspHRs.length === 0 || this.expHRs.length === 0) return;
+    const n = Math.min(this.inspHRs.length, this.expHRs.length);
+    let sumDiff = 0;
+    for (let i = 0; i < n; i++) sumDiff += (this.expHRs[i] - this.inspHRs[i]);
+    this.rsaAmplitudeMs = sumDiff / n;
+  }
+};
+
+function avg(arr) {
+  return arr.length ? arr.reduce((a,b) => a+b, 0) / arr.length : 0;
+}
+
+function toggleRSA() {
+  rsaActive = !rsaActive;
+  const btn = document.getElementById('rsaBtn');
+  if (rsaActive) {
+    rsa.reset();
+    rsa.active = true;
+    btn.textContent = 'STOP RSA MEASUREMENT';
+    btn.className = 'btn-rsa-stop';
+    log('RSA measurement started', 'resp');
+  } else {
+    rsa.active = false;
+    btn.textContent = 'START RSA MEASUREMENT';
+    btn.className = 'btn-rsa-start';
+    log(`RSA stopped · ${rsa.cycles} cycles · amplitude ${rsa.rsaAmplitudeMs !== null ? Math.round(rsa.rsaAmplitudeMs)+'ms' : 'insufficient data'}`, 'resp');
+  }
+}
+
+function updateRSADisplay() {
+  const badge   = document.getElementById('rsaPhaseBadge');
+  const dur     = document.getElementById('rsaPhaseDur');
+  const inspEl  = document.getElementById('rsaInspHR');
+  const expEl   = document.getElementById('rsaExpHR');
+  const ampEl   = document.getElementById('rsaAmplitude');
+  const cycleEl = document.getElementById('rsaCycles');
+
+  if (!rsaActive) {
+    if (rsa.rsaAmplitudeMs !== null) {
+      badge.textContent = 'STOPPED';
+      badge.className = 'rsa-phase-badge';
+      dur.textContent = '';
+      cycleEl.textContent = `${rsa.cycles} breath cycles measured`;
+    }
+    return;
+  }
+
+  const phaseNow = rsa.phase;
+  const phaseSec = ((Date.now() - rsa.phaseStart) / 1000).toFixed(1);
+  if (phaseNow === 'insp') {
+    badge.textContent = 'INSPIRING ↑';
+    badge.className = 'rsa-phase-badge insp';
+    dur.textContent = phaseSec + 's';
+  } else if (phaseNow === 'exp') {
+    badge.textContent = 'EXPIRING ↓';
+    badge.className = 'rsa-phase-badge exp';
+    dur.textContent = phaseSec + 's';
+  } else {
+    badge.textContent = 'DETECTING…';
+    badge.className = 'rsa-phase-badge';
+    dur.textContent = '';
+  }
+
+  const meanInsp = rsa.inspHRs.length ? Math.round(avg(rsa.inspHRs.map(rr => 60000/rr))) : null;
+  const meanExp  = rsa.expHRs.length  ? Math.round(avg(rsa.expHRs.map(rr => 60000/rr)))  : null;
+  inspEl.textContent = meanInsp !== null ? meanInsp + ' bpm' : '---';
+  expEl.textContent  = meanExp  !== null ? meanExp  + ' bpm' : '---';
+
+  if (rsa.rsaAmplitudeMs !== null) {
+    const ms = Math.round(rsa.rsaAmplitudeMs);
+    ampEl.textContent = ms + ' ms';
+    ampEl.style.color = ms >= 20 ? 'var(--green)' : ms >= 10 ? 'var(--amber)' : 'var(--warn)';
+  } else {
+    ampEl.textContent = '--- ms';
+    ampEl.style.color = 'var(--dim)';
+  }
+
+  const needed = Math.max(0, 5 - rsa.cycles);
+  cycleEl.textContent = rsa.cycles === 0
+    ? 'Waiting for first breath cycle…'
+    : rsa.cycles < 5
+      ? `${rsa.cycles} cycle${rsa.cycles>1?'s':''} · ${needed} more for reliable result`
+      : `${rsa.cycles} cycles · result stable`;
 }
 
 resize();
 log('Ready · waiting for connection', 'neutral');
 log('Unified format: t_us,ecg_mv,resp_mm,rmax,rmin', 'neutral');
+log('Drag canvas or scrollbar to review history', 'neutral');
 frame();
+
+// ===================== COLLAPSIBLE BPM STRIP =====================
+function toggleBPMStrip() {
+  const body   = document.getElementById('bpmStripBody');
+  const arrow  = document.getElementById('bpmStripArrow');
+  const scopes = document.querySelector('.scopes-side');
+  const hidden = body.classList.toggle('hidden');
+  arrow.textContent = hidden ? '▼' : '▲';
+  scopes.classList.toggle('bpm-collapsed', hidden);
+}
+
+// ===================== COLLAPSIBLE CONTROLS =====================
+function toggleControls() {
+  const body  = document.getElementById('controlsBody');
+  const arrow = document.getElementById('controlsArrow');
+  const isOpen = body.classList.toggle('open');
+  arrow.textContent = isOpen ? '▲' : '▼';
+}
 </script>
 </body>
 </html>

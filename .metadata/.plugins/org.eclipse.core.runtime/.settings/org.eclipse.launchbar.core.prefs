@@ -2,9 +2,9 @@ LaunchTargetManager/org.eclipse.launchbar.core.launchTargetType.local,Local/arch
 LaunchTargetManager/org.eclipse.launchbar.core.launchTargetType.local,Local/name=Local
 LaunchTargetManager/org.eclipse.launchbar.core.launchTargetType.local,Local/os=macosx
 activeLaunchTarget=null\:---
-configDescList=org.eclipse.cdt.dsf.gdb.gdbRemotedescriptorType\:HRV Debug (2),org.eclipse.cdt.dsf.gdb.gdbRemotedescriptorType\:HRV Debug (1),org.eclipse.cdt.dsf.gdb.gdbRemotedescriptorType\:testLed Debug,org.eclipse.cdt.dsf.gdb.gdbRemotedescriptorType\:HRV Debug
+configDescList=org.eclipse.cdt.dsf.gdb.gdbRemotedescriptorType\:HRV Debug (2),org.eclipse.cdt.dsf.gdb.gdbRemotedescriptorType\:testLed Debug,org.eclipse.cdt.dsf.gdb.gdbRemotedescriptorType\:HRV Debug,org.eclipse.cdt.dsf.gdb.gdbRemotedescriptorType\:HRV Debug (1),org.eclipse.launchbar.core.descriptorType.default\:HRV Debug (3)
 eclipse.preferences.version=1
-org.eclipse.cdt.dsf.gdb.gdbRemotedescriptorType\:HRV\ Debug\ (1)/activeLaunchMode=run
+org.eclipse.cdt.dsf.gdb.gdbRemotedescriptorType\:HRV\ Debug\ (1)/activeLaunchMode=debug
 org.eclipse.cdt.dsf.gdb.gdbRemotedescriptorType\:HRV\ Debug\ (1)/activeLaunchTarget=null\:---
 org.eclipse.cdt.dsf.gdb.gdbRemotedescriptorType\:HRV\ Debug/activeLaunchMode=debug
 org.eclipse.cdt.dsf.gdb.gdbRemotedescriptorType\:HRV\ Debug/activeLaunchTarget=null\:---
@@ -12,6 +12,7 @@ org.eclipse.cdt.dsf.gdb.gdbRemotedescriptorType\:HRV_Resp_Monitor/activeLaunchMo
 org.eclipse.cdt.dsf.gdb.gdbRemotedescriptorType\:HRV_Resp_Monitor/activeLaunchTarget=null\:---
 org.eclipse.launchbar.core.descriptorType.default\:HRV\ Debug\ (1)/activeLaunchTarget=org.eclipse.launchbar.core.launchTargetType.local\:Local
 org.eclipse.launchbar.core.descriptorType.default\:HRV\ Debug\ (2)/activeLaunchTarget=org.eclipse.launchbar.core.launchTargetType.local\:Local
+org.eclipse.launchbar.core.descriptorType.default\:HRV\ Debug\ (3)/activeLaunchTarget=org.eclipse.launchbar.core.launchTargetType.local\:Local
 org.eclipse.launchbar.core.descriptorType.default\:HRV_Resp_Monitor/activeLaunchMode=run
 org.eclipse.launchbar.core.descriptorType.default\:HRV_Resp_Monitor/activeLaunchTarget=org.eclipse.launchbar.core.launchTargetType.local\:Local
 org.eclipse.launchbar.core.descriptorType.default\:Resp_HRV_Monitor\ Debug/activeLaunchMode=debug
