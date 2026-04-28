@@ -24,6 +24,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "usbd_cdc_if.h"
+#include "usbd_def.h"
 #include "MPU6050.h"
 #include "ads1292r.h"
 #include <stdio.h>
@@ -32,16 +34,35 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+typedef struct __attribute__((packed)) {
+    uint32_t magic;
+    uint32_t t_us;
+    float    mv;
+    float    resp_mm;
+} CombinedPacket_t;
+
+_Static_assert(sizeof(CombinedPacket_t) == 16, "CombinedPacket_t size mismatch");
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define CHEST_LENGTH_CM   12.0f   /* sensor-to-sternum distance — tune per patient */
-#define SAMPLE_RATE_MS    20U     /* 50 Hz respiration tick                         */
+#define SAMPLE_RATE_US    20000U  /* 50 Hz respiration tick                         */
 #define COMP_ALPHA        0.98f   /* complementary filter gyro weight               */
 #define LP_ALPHA          0.20f   /* low-pass on angle                              */
 #define BASELINE_SAMPLES  100U
-#define BIAS_SAMPLES      200U
+#define BIAS_SAMPLES      10U
+#define USB_ONLY_DIAGNOSTIC 0U
+#define FAST_SENSOR_STARTUP 1U
+#define ADS_PROCESS_US    10000U
+#define SAMPLE_RATE_MS    20U
+#define USB_BATCH_PACKETS 8U
+#define USB_BATCH_MS      (SAMPLE_RATE_MS * USB_BATCH_PACKETS)
+#define ADS_PROCESS_MS    160U
+#define STREAM_CAL_SAMPLES 100U
+#define USB_PACKET_MAGIC  0x31565248U /* "HRV1", little-endian */
+#define ENABLE_ADS1292R   1U
+#define ENABLE_MPU6050    1U
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -58,10 +79,15 @@ UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 extern Struct_MPU6050 MPU6050;
+extern USBD_HandleTypeDef hUsbDeviceFS;
 
+#if !FAST_SENSOR_STARTUP
 static float gyro_bias_x = 0.0f;
+#endif
 static float gyro_bias_y = 0.0f;
+#if !FAST_SENSOR_STARTUP
 static float gyro_bias_z = 0.0f;
+#endif
 
 static float baselineAngle = 0.0f;
 static float fusedAngle    = 0.0f;
@@ -69,9 +95,17 @@ static float lpFiltered    = 0.0f;
 
 static float peakMax = -9999.0f;
 static float peakMin =  9999.0f;
+static float displacement_mm = 0.0f;
 
 static uint32_t prevTime       = 0;
 static uint32_t lastSampleTime = 0;
+static uint32_t lastAdsProcessTime = 0;
+static uint32_t prevSampleMs = 0;
+static uint32_t lastSampleMs = 0;
+static uint32_t lastAdsProcessMs = 0;
+static uint32_t streamCalCount = 0;
+static float streamCalPitchSum = 0.0f;
+static float streamCalGyroYSum = 0.0f;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -81,27 +115,37 @@ static void MX_USART2_UART_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_SPI2_Init(void);
 /* USER CODE BEGIN PFP */
+#if !FAST_SENSOR_STARTUP
 static void MeasureBaseline(void);
+#endif
 static void ResetPeaks(void);
-static void RecalibrateBaseline(void);
 static void HandleUARTCommands(void);
+static uint8_t SendCombinedUSBBatch(uint32_t newest_ms);
+static void UpdateSample(uint32_t sample_ms);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+static inline void delay_us_tim2(uint32_t us)
+{
+    uint32_t t0 = TIM2->CNT;
+    while ((TIM2->CNT - t0) < us) {}
+}
 
+#if !FAST_SENSOR_STARTUP
 static void MeasureBaseline(void)
 {
     float sum = 0.0f;
     for (uint32_t i = 0; i < BASELINE_SAMPLES; i++) {
         MPU6050_ProcessData(&MPU6050);
         sum += MPU6050_GetPitchDeg(&MPU6050);
-        HAL_Delay(5);
+        delay_us_tim2(5000U);
     }
     baselineAngle = sum / (float)BASELINE_SAMPLES;
     fusedAngle    = baselineAngle;
     lpFiltered    = 0.0f;
 }
+#endif
 
 static void ResetPeaks(void)
 {
@@ -109,21 +153,96 @@ static void ResetPeaks(void)
     peakMin =  9999.0f;
 }
 
-static void RecalibrateBaseline(void)
-{
-    MeasureBaseline();
-    ResetPeaks();
-    prevTime       = HAL_GetTick();
-    lastSampleTime = HAL_GetTick();
-}
-
 static void HandleUARTCommands(void)
 {
     uint8_t ch;
     while (HAL_UART_Receive(&huart2, &ch, 1, 0) == HAL_OK) {
-        if      (ch == 'r') ResetPeaks();
-        else if (ch == 'b') RecalibrateBaseline();
+        if (ch == 'r') ResetPeaks();
     }
+}
+
+static void UpdateSample(uint32_t sample_ms)
+{
+#if ENABLE_MPU6050
+    MPU6050_ProcessData(&MPU6050);
+
+    float accelAngle = MPU6050_GetPitchDeg(&MPU6050);
+    float gyroRate = MPU6050.gyro_y - gyro_bias_y;
+
+    if (streamCalCount < STREAM_CAL_SAMPLES) {
+        streamCalPitchSum += accelAngle;
+        streamCalGyroYSum += MPU6050.gyro_y;
+        streamCalCount++;
+
+        if (streamCalCount == STREAM_CAL_SAMPLES) {
+            baselineAngle = streamCalPitchSum / (float)STREAM_CAL_SAMPLES;
+            gyro_bias_y = streamCalGyroYSum / (float)STREAM_CAL_SAMPLES;
+            fusedAngle = baselineAngle;
+            lpFiltered = 0.0f;
+            prevSampleMs = sample_ms;
+            ResetPeaks();
+        }
+
+        displacement_mm = 0.0f;
+        return;
+    }
+
+    float dt = (sample_ms - prevSampleMs) / 1000.0f;
+    prevSampleMs = sample_ms;
+
+    fusedAngle = COMP_ALPHA * (fusedAngle + gyroRate * dt)
+               + (1.0f - COMP_ALPHA) * accelAngle;
+
+    float relativeAngle = fusedAngle - baselineAngle;
+    lpFiltered = LP_ALPHA * relativeAngle
+               + (1.0f - LP_ALPHA) * lpFiltered;
+
+    displacement_mm = 10.0f * CHEST_LENGTH_CM
+                    * sinf(lpFiltered * (float)M_PI / 180.0f);
+
+    if (displacement_mm > peakMax) peakMax = displacement_mm;
+    if (displacement_mm < peakMin) peakMin = displacement_mm;
+#else
+    (void)sample_ms;
+    displacement_mm = 0.0f;
+    peakMax = 0.0f;
+    peakMin = 0.0f;
+#endif
+}
+
+static uint8_t SendCombinedUSBBatch(uint32_t newest_ms)
+{
+    static CombinedPacket_t batch[USB_BATCH_PACKETS];
+
+    if (hUsbDeviceFS.dev_state != USBD_STATE_CONFIGURED) {
+        return USBD_FAIL;
+    }
+    if (!CDC_IsHostConnected_FS()) {
+        return USBD_FAIL;
+    }
+
+    for (uint32_t i = 0; i < USB_BATCH_PACKETS; i++) {
+        uint32_t sample_ms = newest_ms - ((USB_BATCH_PACKETS - 1U - i) * SAMPLE_RATE_MS);
+        UpdateSample(sample_ms);
+#if ENABLE_ADS1292R
+        if ((sample_ms - lastAdsProcessMs) >= ADS_PROCESS_MS) {
+            lastAdsProcessMs = sample_ms;
+            ADS1292R_Process(displacement_mm, peakMax, peakMin);
+        }
+#endif
+        batch[i] = (CombinedPacket_t) {
+            .magic = USB_PACKET_MAGIC,
+            .t_us = sample_ms * 1000U,
+#if ENABLE_ADS1292R
+            .mv = ADS1292R_GetLatestMv(),
+#else
+            .mv = 0.0f,
+#endif
+            .resp_mm = displacement_mm,
+        };
+    }
+
+    return CDC_Transmit_FS((uint8_t *)batch, sizeof(batch));
 }
 
 /* USER CODE END 0 */
@@ -156,18 +275,35 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+#if !USB_ONLY_DIAGNOSTIC
   MX_USART2_UART_Init();
+#if ENABLE_MPU6050
   MX_I2C1_Init();
+#endif
+#if ENABLE_ADS1292R
   MX_SPI2_Init();
-  MX_USB_DEVICE_Init();
+#endif
+#endif
   /* USER CODE BEGIN 2 */
+    __HAL_RCC_TIM2_CLK_ENABLE();
+    TIM2->PSC = (SystemCoreClock / 1000000U) - 1U;
+    TIM2->ARR = 0xFFFFFFFFU;
+    TIM2->CNT = 0;
+    TIM2->CR1 = TIM_CR1_CEN;
 
+    MX_USB_DEVICE_Init();
+
+#if USB_ONLY_DIAGNOSTIC
+    lastSampleMs = HAL_GetTick();
+#else
+#if ENABLE_MPU6050
     /* ---- MPU6050 init ---- */
     MPU6050_Initialization();
+#if !FAST_SENSOR_STARTUP
     MPU6050_CalibrateGyro(6);
     MPU6050_CalibrateAccel(6);
     MPU6050_PrintActiveOffsets();
-    HAL_Delay(1000);
+    delay_us_tim2(1000000U);
 
     printf("Measuring gyro bias...\r\n");
     MPU6050_MeasureGyroBiasXYZ(BIAS_SAMPLES, 10,
@@ -177,12 +313,26 @@ int main(void)
 
     printf("Measuring respiration baseline...\r\n");
     MeasureBaseline();
+#else
+    MPU6050_ProcessData(&MPU6050);
+    baselineAngle = MPU6050_GetPitchDeg(&MPU6050);
+    fusedAngle    = baselineAngle;
+    lpFiltered    = 0.0f;
+#endif
+#endif
 
-    prevTime       = HAL_GetTick();
-    lastSampleTime = HAL_GetTick();
+    prevTime       = TIM2->CNT;
+    lastSampleTime = TIM2->CNT;
+    lastAdsProcessTime = TIM2->CNT;
+    prevSampleMs = HAL_GetTick();
+    lastSampleMs = prevSampleMs;
+    lastAdsProcessMs = prevSampleMs;
 
+#if ENABLE_ADS1292R
     /* ---- ADS1292R init (after SPI2 + GPIO + TIM2) ---- */
     ADS1292R_Init();
+#endif
+#endif
 
   /* USER CODE END 2 */
 
@@ -190,39 +340,22 @@ int main(void)
   /* USER CODE BEGIN WHILE */
     while (1)
     {
+#if USB_ONLY_DIAGNOSTIC
+        uint32_t nowMs = HAL_GetTick();
+        if ((nowMs - lastSampleMs) >= USB_BATCH_MS) {
+            lastSampleMs = nowMs;
+            (void)SendCombinedUSBBatch(nowMs);
+        }
+#else
         HandleUARTCommands();
 
         /* ---- Respiration tick @ 50 Hz ---- */
-        uint32_t now = HAL_GetTick();
-        if ((now - lastSampleTime) >= SAMPLE_RATE_MS) {
-            lastSampleTime = now;
-
-            MPU6050_ProcessData(&MPU6050);
-
-            float dt = (now - prevTime) / 1000.0f;
-            prevTime = now;
-
-            float accelAngle = MPU6050_GetPitchDeg(&MPU6050);
-            float gyroRate   = MPU6050.gyro_y - gyro_bias_y;
-
-            /* Complementary filter */
-            fusedAngle = COMP_ALPHA * (fusedAngle + gyroRate * dt)
-                       + (1.0f - COMP_ALPHA) * accelAngle;
-
-            float relativeAngle = fusedAngle - baselineAngle;
-
-            lpFiltered = LP_ALPHA * relativeAngle
-                       + (1.0f - LP_ALPHA) * lpFiltered;
-
-            displacement_mm = 10.0f * CHEST_LENGTH_CM
-                            * sinf(lpFiltered * (float)M_PI / 180.0f);
-
-            if (displacement_mm > peakMax) peakMax = displacement_mm;
-            if (displacement_mm < peakMin) peakMin = displacement_mm;
+        uint32_t nowMs = HAL_GetTick();
+        if ((nowMs - lastSampleMs) >= USB_BATCH_MS) {
+            lastSampleMs = nowMs;
+            (void)SendCombinedUSBBatch(nowMs);
         }
-
-        /* ---- ECG tick — driven by DRDY interrupt @ 500 SPS ---- */
-        ADS1292R_Process(displacement_mm, peakMax, peakMin);
+#endif
 
     /* USER CODE END WHILE */
 
@@ -363,7 +496,7 @@ static void MX_SPI2_Init(void)
   hspi2.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi2.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi2.Init.NSS = SPI_NSS_HARD_OUTPUT;
-  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
   hspi2.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi2.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi2.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -470,7 +603,7 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin : DRDY_Pin */
   GPIO_InitStruct.Pin = DRDY_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(DRDY_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PB5 */
@@ -480,8 +613,6 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
-    HAL_NVIC_SetPriority(EXTI15_10_IRQn, 1, 0);
-    HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
   /* USER CODE END MX_GPIO_Init_2 */
 }
 

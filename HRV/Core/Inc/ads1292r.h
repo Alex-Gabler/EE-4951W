@@ -84,13 +84,10 @@ typedef struct {
     uint8_t valid;
 } HRV_Results;
 
-void ADS1292R_Process(float resp_mm, float resp_max, float resp_min);
 HRV_Results ADS1292R_GetHRV(void);
 /**
- * @brief  Poll for a new sample and, when one is ready, stream it over UART.
+ * @brief  Poll for a new sample and update the latest ECG/HRV state.
  *         Call repeatedly from the main while(1) loop.
- *         Output format:  t_us,ecg_mv,resp_mm,rmax,rmin\r\n
- *         resp_* values are passed in from the respiration path.
  */
 void ADS1292R_Process(float resp_mm, float resp_max, float resp_min);
 

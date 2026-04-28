@@ -11,23 +11,30 @@ static float LSB_Sensitivity_ACC;
 static float LSB_Sensitivity_GYRO;
 
 #define MPU6050_ADDR (0x68 << 1)
+#define MPU6050_I2C_TIMEOUT_MS 2U
 
 static void MPU_WriteWord(uint8_t reg, int16_t value);
 static void MPU_ReadWord(uint8_t reg, int16_t *value);
 static void MPU6050_PID(uint8_t readAddr, float kP, float kI, uint8_t loops);
+
+static void delay_ms_tim2(uint32_t ms)
+{
+    uint32_t t0 = TIM2->CNT;
+    while ((TIM2->CNT - t0) < (ms * 1000U)) {}
+}
 
 static void MPU_WriteWord(uint8_t reg, int16_t value)
 {
     uint8_t buf[2];
     buf[0] = (value >> 8) & 0xFF;
     buf[1] = value & 0xFF;
-    HAL_I2C_Mem_Write(&hi2c1, MPU6050_ADDR, reg, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
+    HAL_I2C_Mem_Write(&hi2c1, MPU6050_ADDR, reg, I2C_MEMADD_SIZE_8BIT, buf, 2, MPU6050_I2C_TIMEOUT_MS);
 }
 
 static void MPU_ReadWord(uint8_t reg, int16_t *value)
 {
     uint8_t buf[2];
-    HAL_I2C_Mem_Read(&hi2c1, MPU6050_ADDR, reg, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
+    HAL_I2C_Mem_Read(&hi2c1, MPU6050_ADDR, reg, I2C_MEMADD_SIZE_8BIT, buf, 2, MPU6050_I2C_TIMEOUT_MS);
     *value = (int16_t)((buf[0] << 8) | buf[1]);
 }
 
@@ -103,7 +110,7 @@ static void MPU6050_PID(uint8_t readAddr, float kP, float kI, uint8_t loops)
             }
 
             if (eSum < 100) break;
-            HAL_Delay(1);
+            delay_ms_tim2(1);
         }
 
         kP *= 0.75f;
@@ -152,7 +159,7 @@ void MPU6050_WriteOffset(uint8_t reg, int16_t value)
                       I2C_MEMADD_SIZE_8BIT,
                       data,
                       2,
-                      HAL_MAX_DELAY);
+	                  MPU6050_I2C_TIMEOUT_MS);
 }
 
 void MPU6050_ReadRaw3(uint8_t startReg, int16_t *data)
@@ -165,7 +172,7 @@ void MPU6050_ReadRaw3(uint8_t startReg, int16_t *data)
                      I2C_MEMADD_SIZE_8BIT,
                      buffer,
                      6,
-                     HAL_MAX_DELAY);
+	                 MPU6050_I2C_TIMEOUT_MS);
 
     data[0] = (int16_t)((buffer[0] << 8) | buffer[1]);
     data[1] = (int16_t)((buffer[2] << 8) | buffer[3]);
@@ -176,27 +183,27 @@ void MPU6050_ReadRaw3(uint8_t startReg, int16_t *data)
 
 void MPU6050_Writebyte(uint8_t reg_addr, uint8_t val)
 {
-    HAL_I2C_Mem_Write(&hi2c1, MPU6050_ADDR, reg_addr, I2C_MEMADD_SIZE_8BIT, &val, 1, HAL_MAX_DELAY);
+    HAL_I2C_Mem_Write(&hi2c1, MPU6050_ADDR, reg_addr, I2C_MEMADD_SIZE_8BIT, &val, 1, MPU6050_I2C_TIMEOUT_MS);
 }
 
 void MPU6050_Writebytes(uint8_t reg_addr, uint8_t len, uint8_t* data)
 {
-    HAL_I2C_Mem_Write(&hi2c1, MPU6050_ADDR, reg_addr, I2C_MEMADD_SIZE_8BIT, data, len, HAL_MAX_DELAY);
+    HAL_I2C_Mem_Write(&hi2c1, MPU6050_ADDR, reg_addr, I2C_MEMADD_SIZE_8BIT, data, len, MPU6050_I2C_TIMEOUT_MS);
 }
 
 void MPU6050_Readbyte(uint8_t reg_addr, uint8_t* data)
 {
-    HAL_I2C_Mem_Read(&hi2c1, MPU6050_ADDR, reg_addr, I2C_MEMADD_SIZE_8BIT, data, 1, HAL_MAX_DELAY);
+    HAL_I2C_Mem_Read(&hi2c1, MPU6050_ADDR, reg_addr, I2C_MEMADD_SIZE_8BIT, data, 1, MPU6050_I2C_TIMEOUT_MS);
 }
 
 void MPU6050_Readbytes(uint8_t reg_addr, uint8_t len, uint8_t* data)
 {
-    HAL_I2C_Mem_Read(&hi2c1, MPU6050_ADDR, reg_addr, I2C_MEMADD_SIZE_8BIT, data, len, HAL_MAX_DELAY);
+    HAL_I2C_Mem_Read(&hi2c1, MPU6050_ADDR, reg_addr, I2C_MEMADD_SIZE_8BIT, data, len, MPU6050_I2C_TIMEOUT_MS);
 }
 
 void MPU6050_Initialization(void)
 {
-    HAL_Delay(50);
+    delay_ms_tim2(50);
 
     uint8_t who_am_i = 0;
     MPU6050_Readbyte(MPU6050_WHO_AM_I, &who_am_i);
@@ -207,33 +214,29 @@ void MPU6050_Initialization(void)
     }
     else
     {
-        printf("ERROR! MPU6050 who_am_i = 0x%02X (expected 0x68)\r\n", who_am_i);
-        while (1)
-        {
-            printf("who am i error. cannot recognize mpu6050\r\n");
-            HAL_Delay(500);
-        }
+        printf("ERROR! MPU6050 who_am_i = 0x%02X - skipping IMU init\r\n", who_am_i);
+        return;
     }
 
     MPU6050_Writebyte(MPU6050_PWR_MGMT_1, 0x80);
-    HAL_Delay(100);
+    delay_ms_tim2(100);
 
     MPU6050_Writebyte(MPU6050_PWR_MGMT_1, 0x00);
-    HAL_Delay(50);
+    delay_ms_tim2(50);
 
     MPU6050_Writebyte(MPU6050_SMPRT_DIV, 39); // 200 Hz
-    HAL_Delay(50);
+    delay_ms_tim2(50);
 
     MPU6050_Writebyte(MPU6050_CONFIG, 0x02); // DLPF
-    HAL_Delay(50);
+    delay_ms_tim2(50);
 
     uint8_t FS_SCALE_GYRO = 0x0; // +/-250 deg/s
     MPU6050_Writebyte(MPU6050_GYRO_CONFIG, FS_SCALE_GYRO << 3);
-    HAL_Delay(50);
+    delay_ms_tim2(50);
 
     uint8_t FS_SCALE_ACC = 0x0; // +/-2g
     MPU6050_Writebyte(MPU6050_ACCEL_CONFIG, FS_SCALE_ACC << 3);
-    HAL_Delay(50);
+    delay_ms_tim2(50);
 
     MPU6050_Get_LSB_Sensitivity(FS_SCALE_GYRO, FS_SCALE_ACC);
 
@@ -242,11 +245,11 @@ void MPU6050_Initialization(void)
     uint8_t INT_RD_CLEAR = 0x1;
     MPU6050_Writebyte(MPU6050_INT_PIN_CFG,
                       (INT_LEVEL << 7) | (LATCH_INT_EN << 5) | (INT_RD_CLEAR << 4));
-    HAL_Delay(50);
+    delay_ms_tim2(50);
 
     uint8_t DATA_RDY_EN = 0x1;
     MPU6050_Writebyte(MPU6050_INT_ENABLE, DATA_RDY_EN);
-    HAL_Delay(50);
+    delay_ms_tim2(50);
 
     printf("MPU6050 setting is finished\r\n");
 }
@@ -333,7 +336,7 @@ void MPU6050_MeasureGyroBiasXYZ(uint16_t samples, uint32_t delay_ms,
         sx += MPU6050.gyro_x;
         sy += MPU6050.gyro_y;
         sz += MPU6050.gyro_z;
-        HAL_Delay(delay_ms);
+        delay_ms_tim2(delay_ms);
     }
 
     *bx = sx / samples;

@@ -67,7 +67,6 @@ static Biquad s_hp, s_n1, s_n2, s_lp;
 
 /* ISR → main handoff */
 static volatile uint8_t s_ready  = 0;
-static volatile uint8_t s_raw[3];     /* CH1 bytes from ISR */
 
 /* Decimation */
 static uint8_t s_dec = 0;
@@ -88,13 +87,16 @@ static uint8_t s_rrHead  = 0;
 static uint8_t s_rrCount = 0;
 static HRV_Results s_hrv = {0};
 
+static float    s_latest_mv = 0.0f;
+static uint32_t s_latest_t_us = 0;
+
 /* =========================================================================
  * SPI helpers
  * ========================================================================= */
 static inline uint8_t spi_byte(uint8_t tx)
 {
     uint8_t rx = 0;
-    HAL_SPI_TransmitReceive(&hspi2, &tx, &rx, 1, HAL_MAX_DELAY);
+    (void)HAL_SPI_TransmitReceive(&hspi2, &tx, &rx, 1, 1U);
     return rx;
 }
 
@@ -102,6 +104,12 @@ static void delay_us(uint32_t us)
 {
     volatile uint32_t n = us * 8u;
     while (n--) { __NOP(); }
+}
+
+static void delay_ms_tim2(uint32_t ms)
+{
+    uint32_t t0 = TIM2->CNT;
+    while ((TIM2->CNT - t0) < (ms * 1000U)) {}
 }
 
 static inline void cs_lo(void) { HAL_GPIO_WritePin(ADS_CS_GPIO_Port,    ADS_CS_Pin,    GPIO_PIN_RESET); }
@@ -345,16 +353,18 @@ static void verify_regs(void)
 }
 
 /* =========================================================================
- * DRDY interrupt — read 9 bytes, store CH1, set flag
+ * DRDY interrupt — only signal the main loop.
  *
- * Runs inside EXTI ISR. SPI calls are safe here because SPI2 is dedicated
- * to the ADS1292R and no other ISR touches it.
+ * Keep SPI out of EXTI context so USB and SysTick are not blocked by a
+ * 500 Hz sensor interrupt.
  * ========================================================================= */
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+void ADS1292R_DRDY_Callback(void)
 {
-    if (GPIO_Pin != DRDY_Pin)
-        return;
+    s_ready = 1;
+}
 
+static void read_ads_frame(void)
+{
     cs_lo();
     __NOP(); __NOP(); __NOP(); __NOP();
 
@@ -362,15 +372,31 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     spi_byte(0x00); spi_byte(0x00); spi_byte(0x00);
 
     /* CH1 — ECG */
-    s_raw[0] = spi_byte(0x00);
-    s_raw[1] = spi_byte(0x00);
-    s_raw[2] = spi_byte(0x00);
+    uint8_t b0 = spi_byte(0x00);
+    uint8_t b1 = spi_byte(0x00);
+    uint8_t b2 = spi_byte(0x00);
 
     /* CH2 — powered down, clock out to complete the 9-byte frame */
     spi_byte(0x00); spi_byte(0x00); spi_byte(0x00);
 
     cs_hi();
-    s_ready = 1;
+
+    float mv = to_mv(sign_extend24(b0, b1, b2));
+    mv = biquad(&s_hp, mv);
+    mv = biquad(&s_n1, mv);
+    mv = biquad(&s_n2, mv);
+    mv = biquad(&s_lp, mv);
+
+    s_latest_mv = mv;
+    s_latest_t_us = TIM2->CNT;
+
+    if (++s_dec < DECIMATE)
+        return;
+    s_dec = 0;
+
+    if (detect_beat(mv)) {
+        HAL_GPIO_TogglePin(Heartbeat_Led_GPIO_Port, Heartbeat_Led_Pin);
+    }
 }
 
 /* =========================================================================
@@ -380,6 +406,11 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 HRV_Results ADS1292R_GetHRV(void)
 {
     return s_hrv;
+}
+
+float ADS1292R_GetLatestMv(void)
+{
+    return s_latest_mv;
 }
 
 void ADS1292R_Init(void)
@@ -400,12 +431,12 @@ void ADS1292R_Init(void)
 
     /* ---- Hardware reset ---- */
     HAL_GPIO_WritePin(ADS_RESET_GPIO_Port, ADS_RESET_Pin, GPIO_PIN_RESET);
-    HAL_Delay(10);
+    delay_ms_tim2(10);
     HAL_GPIO_WritePin(ADS_RESET_GPIO_Port, ADS_RESET_Pin, GPIO_PIN_SET);
-    HAL_Delay(100);
+    delay_ms_tim2(100);
 
-    ads_cmd(ADS_CMD_RESET);  HAL_Delay(20);
-    ads_cmd(ADS_CMD_SDATAC); HAL_Delay(10);
+    ads_cmd(ADS_CMD_RESET);  delay_ms_tim2(20);
+    ads_cmd(ADS_CMD_SDATAC); delay_ms_tim2(10);
 
     /* ---- Chip ID check ---- */
     uint8_t id = ads_rreg(0x00);
@@ -424,15 +455,15 @@ void ADS1292R_Init(void)
      * RESP1    0x02 : on-chip respiration off
      * RESP2    0x07 : ADS1292R-specific default
      */
-    ads_wreg(0x01, 0x02); HAL_Delay(5);
-    ads_wreg(0x02, 0xA3); HAL_Delay(150);  /* wait for reference to settle */
-    ads_wreg(0x03, 0x10); HAL_Delay(5);
-    ads_wreg(0x04, 0x00); HAL_Delay(5);
-    ads_wreg(0x05, 0x81); HAL_Delay(5);
-    ads_wreg(0x06, 0x23); HAL_Delay(5);
-    ads_wreg(0x07, 0x00); HAL_Delay(5);
-    ads_wreg(0x09, 0x02); HAL_Delay(5);
-    ads_wreg(0x0A, 0x07); HAL_Delay(5);
+    ads_wreg(0x01, 0x02); delay_ms_tim2(5);
+    ads_wreg(0x02, 0xA3); delay_ms_tim2(150);  /* wait for reference to settle */
+    ads_wreg(0x03, 0x10); delay_ms_tim2(5);
+    ads_wreg(0x04, 0x00); delay_ms_tim2(5);
+    ads_wreg(0x05, 0x81); delay_ms_tim2(5);
+    ads_wreg(0x06, 0x23); delay_ms_tim2(5);
+    ads_wreg(0x07, 0x00); delay_ms_tim2(5);
+    ads_wreg(0x09, 0x02); delay_ms_tim2(5);
+    ads_wreg(0x0A, 0x07); delay_ms_tim2(5);
 
     verify_regs();
 
@@ -454,24 +485,9 @@ void ADS1292R_Init(void)
 
     /* ---- Start conversions ---- */
     HAL_GPIO_WritePin(ADS_START_GPIO_Port, ADS_START_Pin, GPIO_PIN_SET);
-    HAL_Delay(10);
-    ads_cmd(ADS_CMD_START);  HAL_Delay(10);
-    ads_cmd(ADS_CMD_RDATAC); HAL_Delay(10);
-
-    /* ---- Confirm DRDY is toggling ---- */
-    printf("Waiting for DRDY...\r\n");
-    uint32_t drdy_count = 0;
-    uint32_t timeout    = HAL_GetTick() + 2000;
-    while (drdy_count < 5 && HAL_GetTick() < timeout) {
-        if (HAL_GPIO_ReadPin(DRDY_GPIO_Port, DRDY_Pin) == GPIO_PIN_RESET) {
-            drdy_count++;
-            cs_lo();
-            for (int i = 0; i < 9; i++) spi_byte(0x00);
-            cs_hi();
-            HAL_Delay(2);
-        }
-    }
-    printf(drdy_count >= 5 ? "DRDY OK\r\n\r\n" : "WARNING: DRDY not toggling\r\n\r\n");
+    delay_ms_tim2(10);
+    ads_cmd(ADS_CMD_START);  delay_ms_tim2(10);
+    ads_cmd(ADS_CMD_RDATAC); delay_ms_tim2(10);
 
     /* ---- Start µs timer (bare register — no HAL TIM header needed) ---- */
     TIM2->CNT = 0;          /* reset counter                               */
@@ -483,50 +499,9 @@ void ADS1292R_Init(void)
 
 void ADS1292R_Process(float resp_mm, float resp_max, float resp_min)
 {
-    if (!s_ready)
-        return;
+    (void)resp_mm;
+    (void)resp_max;
+    (void)resp_min;
 
-    /* Safely copy ISR data */
-    __disable_irq();
-    uint8_t b0 = s_raw[0];
-    uint8_t b1 = s_raw[1];
-    uint8_t b2 = s_raw[2];
-    s_ready = 0;
-    __enable_irq();
-
-    /* µs timestamp — direct TIM2 counter read, no HAL TIM header needed */
-    uint32_t t_us = TIM2->CNT;
-
-    /* Convert */
-    float mv = to_mv(sign_extend24(b0, b1, b2));
-
-    /* Filter */
-    mv = biquad(&s_hp, mv);
-    mv = biquad(&s_n1, mv);
-    mv = biquad(&s_n2, mv);
-    mv = biquad(&s_lp, mv);
-
-    /* Decimate 500 → 100 SPS */
-    if (++s_dec < DECIMATE)
-        return;
-    s_dec = 0;
-
-    /* Unified CSV output — matches dashboard parser */
-    printf("%lu,%.4f,%.3f,%.3f,%.3f\r\n",
-           t_us, mv, resp_mm, resp_max, resp_min);
-
-    /* Beat detection */
-    if (detect_beat(mv)) {
-        HAL_GPIO_TogglePin(Heartbeat_Led_GPIO_Port, Heartbeat_Led_Pin);
-        printf("# BPM=%.1f\r\n", s_bpm);
-
-        if (s_hrv.valid) {
-            printf("# HRV SDNN=%.1f RMSSD=%.1f pNN50=%.1f RR=%.0f BEATS=%d\r\n",
-                   s_hrv.sdnn, s_hrv.rmssd, s_hrv.pnn50,
-                   s_hrv.rr_ms, s_hrv.beats);
-        } else {
-            printf("# HRV collecting %d/%d beats\r\n",
-                   s_hrv.beats, HRV_MIN_BEATS);
-        }
-    }
+    read_ads_frame();
 }
